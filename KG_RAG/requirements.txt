@@ -1,0 +1,9 @@
+neo4j
+python-dotenv
+faiss-gpu
+sentence_transformers
+langchain_ollama
+ollama
+langchain-core
+langchain-community
+langchain
