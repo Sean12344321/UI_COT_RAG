@@ -1,49 +1,45 @@
-from ollama_finetune import generate_output
-from googleapiclient.discovery import build
-from google.oauth2.service_account import Credentials
 import os
+from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
 from dotenv import load_dotenv
+import pandas as pd
+from ollama_finetune import generate_output
 load_dotenv()
+
 # Google Sheets API 配置
-SERVICE_ACCOUNT_FILE = os.getenv("PATH_TO_JSON")
-SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+SERVICE_ACCOUNT_FILE = os.getenv("SERVICE_ACCOUNT_FILE")
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 # 試算表 ID 和範圍
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
-RANGE_READ = 'Sheet1!A:A'  # 讀取 A 欄
-RANGE_WRITE = 'Sheet1!B1'  # 從 B1 開始寫入
-
+RANGE_WRITE_INPUT = 'Sheet1!A:A'  # 寫入輸入範圍
+RANGE_WRITE_TEMPLATE_OUTPUT = 'Sheet1!B:B' # 寫入gpt-4o-mini 輸出範圍
+RANGE_WRITE_MODEL_OUTPUT = 'Sheet1!C15:C' # 寫入模型llama3.1輸出範圍
 # 初始化 Google Sheets 客戶端
 creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
 service = build('sheets', 'v4', credentials=creds)
 sheet = service.spreadsheets()
 
-def read_and_write_sheets():
-    # 讀取 A 欄數據
-    result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range=RANGE_READ).execute()
-    values = result.get("values", [])
-    generate_results = generate_output()  # 假設返回一個列表
-    if not values:
-        print("試算表中沒有可用的數據")
-        return
-    for i, row in enumerate(values, start=1):  # start=1 表示試算表行數從 1 開始
-        user_input = row[0] if row else ""
-        if not user_input.strip():
-            continue  # 跳過空行
+# 載入數據
+df = pd.read_csv('dataset.csv')
+df2 = pd.read_csv('dataset(no_law).csv')
+# 加入標題和內容
+template_outputs = [["gpt-4o-mini"]]  # 標題行
+template_outputs.extend([[item] for item in df2["gpt-4o-mini-2024-07-18\n3000筆"].tolist()[:50]])  # 將輸出每一項獨立一行
 
-        print(f"正在處理第 {i} 行數據...")
+inputs = [["模擬輸入內容"]]  # 標題行
+inputs.extend([[item] for item in df["模擬輸入內容"].tolist()[:-1]])  # 將輸出每一項獨立一行
+# model_outputs = ([[generate_output(item)] for item in df["模擬輸入內容"].tolist()[15:21]])  # 將輸出每一項獨立一行
 
-        # 將 generate_results（列表）寫入 B 到 Z 欄（根據列表長度自動調整）
-        if generate_results:
-            # 將 generate_results 列表展開並寫入同一行
-            write_range = f"Sheet1!B{i}:{chr(65 + len(generate_results))}{i}"  # B 到 Z 等等
-            sheet.values().update(
-                spreadsheetId=SPREADSHEET_ID,
-                range=write_range,
-                valueInputOption="RAW",
-                body={"values": [generate_results[i]]}  # 包裝在一個二維列表中
-            ).execute()
-            print(f"第 {i} 行結果已寫入試算表。")
+def write_sheets(inputs, range):
+    body = {
+        'values': inputs  
+    }
+    response = sheet.values().update(
+        spreadsheetId=SPREADSHEET_ID,
+        range=range,
+        valueInputOption="RAW",
+        body=body
+    ).execute()
+    print(f"{response.get('updatedCells')} cells updated.")
 
-# 執行程序
-if __name__ == "__main__":
-    read_and_write_sheets()
+# write_sheets(model_outputs, RANGE_WRITE_MODEL_OUTPUT)

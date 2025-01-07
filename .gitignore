@@ -2,3 +2,4 @@
 __pycache__/
 venv/
 .chainlit
+service_account.json
