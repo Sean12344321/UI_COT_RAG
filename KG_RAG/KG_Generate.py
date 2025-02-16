@@ -110,4 +110,3 @@ def generate_lawsuit(user_input):
     #     "compensation_request": input_data["compensation_request"]
     # })
     return legal_references
-generate_lawsuit(user_input)

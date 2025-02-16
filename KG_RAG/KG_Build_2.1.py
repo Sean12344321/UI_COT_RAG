@@ -4,6 +4,7 @@ import re
 import os
 # 加載 .env 文件中的環境變數
 load_dotenv()
+os.chdir('/home/huang/rag_finetune/KG_RAG')
 # 連接到 Neo4j 資料庫
 # 使用環境變數
 uri = os.getenv("NEO4J_URI")
