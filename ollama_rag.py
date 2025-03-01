@@ -99,7 +99,7 @@ def generate_response(input_data):
                     'content': input_data,
                 },
             ],
-            model='deepseek-r1:14b',
+            model='kenneth85/llama-3-taiwan:8b-instruct-dpo',
         )
         return response['message']['content']
     except Exception as e:
@@ -173,14 +173,6 @@ def generate_best_lawsheet_among_three(input):
 3. {lawsuits[2]['truth']}"""
       lawsuits[0]['truth'] = generate_response(final_truth)
       print(final_truth)
-      print("=" * 50)
-      print(lawsuits[0]['truth'])
-      print("=" * 50)
-      print(lawsuits[0]['money'])
-      print("=" * 50)
-      print(lawsuits[1]['money'])
-      print("=" * 50)
-      print(lawsuits[2]['money'])
       money_score = pool.map(generate_money_score, [lawsuits[0]['money'], lawsuits[1]['money'], lawsuits[2]['money']])
       best_lawsheet_index = money_score.index(max(money_score))
       print(money_score)
