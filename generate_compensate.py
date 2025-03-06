@@ -55,9 +55,9 @@ money_prompt_multiplePeople = """指示:
 逐項列出費用，每項費用需包含:
 費用名稱(如「醫療費用」、「薪資損失」、「車損修理費用」等)。
 具體金額與簡要原因。
-綜合計算，最後加總每位原告的請求金額，並統整最終總賠償金額。
+確保每位原告都要有完整的賠償項目，不得遺漏任何一位原告或任何一項賠償項目。
 輸出格式範例:
-
+=================
 (一)原告X部分:
 1.醫療費用:XXX元
 原告X因本次事故受傷，前往XXX醫院治療，支出醫療費用XXX元。
@@ -66,36 +66,33 @@ money_prompt_multiplePeople = """指示:
 3. 精神慰撫金: XXX元
 原告X因事故遭受精神痛苦，請求精神慰撫金XXX元。
 (二)原告Y部分:
-1.醫療費用:XXX元
-原告Y因本次事故受傷，前往XXX醫院治療，支出醫療費用XXX元。
-2.薪資損失:XXX元
-原告Y因受傷無法工作，造成薪資損失XXX元。
-3. 精神慰撫金: XXX元
-原告Y因事故遭受精神痛苦，請求精神慰撫金XXX元。
-(三)綜上所陳:
-(總計各原告的賠償金額)
+1.醫療費用:YYY元
+原告Y因本次事故受傷，前往YYY醫院治療，支出醫療費用YYY元。
+2.薪資損失:YYY元
+原告Y因受傷無法工作，造成薪資損失YYY元。
+3. 精神慰撫金: YYY元
+原告Y因事故遭受精神痛苦，請求精神慰撫金YYY元。
+=================
 """
-money_output_check = """請嚴格檢查輸入是否符合規定的格式。請按照以下步驟執行:
-1. 確保句子完整性:
-   - 檢查每個句子是否有適當的標點符號（如「。」「，」）做結尾，避免句子不完整。
-2. 確保沒有意義不明的符號:
-   - 確保輸出中沒有類似「XX」等無意義符號或填充內容。
-3. 檢查格式是否符合範例：
-   - 每一筆賠償項目必須包含：
-     - 費用名稱
-     - 具體金額
-     - 詳細原因描述
-   - 不允許缺少描述，例如「精神慰撫金: 50,000元」不能沒有原因。
-   - 每筆賠償項目後面必須有一段清楚的原因說明。
-請先檢查以上兩點，再做出判斷。
-如果所有條件都符合，輸出:"finished"  
-如果有任何一項不符合，則輸出:"reset"
-
-輸出格式:
-句子完整性:解釋原因
-意義明確性:解釋原因
-格式正確性:解釋原因
-判決結果:
+money_output_check = """請確保輸入有符合格式:
+====================
+(一)原告X部分:
+1.[賠償項目]:XXX元
+賠償原因。
+2.[賠償項目]:XXX元
+賠償原因。
+3.[賠償項目]:XXX元
+賠償原因。
+(二)原告Y部分:
+1.[賠償項目]:XXX元
+賠償原因。
+2.[賠償項目]:XXX元
+賠償原因。
+3.[賠償項目]:XXX元
+賠償原因。
+====================
+====================
+若符合格式，生成結果請回報「finished」，若不符合格式，請回報「reset」。
 """
 
 summary_output_generate = """根據輸入，生成以下賠償總額，嚴格遵照格式，不要有換行或空格。:
@@ -142,25 +139,26 @@ def combine_prompt_generate_lawsheet(input, prompt):
 {prompt}"""
    return generate_response(money_input)
 
-def generate_lawsheet(input):
-    # abstract = combine_prompt_generate_lawsheet(input, money_abstract)
-    # print(abstract)
-    # print("=" * 50)
+def generate_compensate(input):
+    abstract = combine_prompt_generate_lawsheet(input, money_abstract)
+    print(abstract)
+    print("=" * 50)
     while True:
-        output = tmp_output
-        # global money_prompt_multiplePeople
-        # money_prompt_multiplePeople += f"""\n請參考以下賠償項目進行填充:{abstract}"""
-        # output = combine_prompt_generate_lawsheet(input, money_prompt_multiplePeople)
-        # output = output.replace('*', '')
-        # print(output)
-        # print("=" * 50)
+        global money_prompt_multiplePeople
+        money_prompt_multiplePeople += f"""\n請參考以下賠償項目進行填充:{abstract}"""
+        output = combine_prompt_generate_lawsheet(input, money_prompt_multiplePeople)
+        output = output.replace('*', '')
+        print(output)
+        print("=" * 50)
         judge_money = combine_prompt_generate_lawsheet(output, money_output_check)
         print(judge_money)
         print("=" * 50)
+        if "reset" in judge_money:
+            continue
         if "finished" in judge_money:
             break
-    output = remove_last_parenthesis_section(output)
+    
     summary_output = combine_prompt_generate_lawsheet(output, summary_output_generate)
     return output + '\n\n' + summary_output.replace('*', '') 
-      
-print(generate_lawsheet(tmp_prompts))
+
+# print(generate_compensate(tmp_prompts))
