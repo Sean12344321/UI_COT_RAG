@@ -157,8 +157,9 @@ def generate_compensate(input):
             continue
         if "finished" in judge_money:
             break
-    
+    output = re.sub(r'(^=+|\n=+)', '', output) # remove all ===== signal
     summary_output = combine_prompt_generate_lawsheet(output, summary_output_generate)
+    summary_output = re.sub(r'\n', '', summary_output) # remove all \n signals
     return output + '\n\n' + summary_output.replace('*', '') 
 
 # print(generate_compensate(tmp_prompts))
