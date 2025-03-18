@@ -75,13 +75,17 @@ def convert_law(laws):
 
 def generate_lawsheet(input_data):
     """處理單個生成請求並輸出結果"""
-    from KG_RAG.KG_Generate import generate_legal_references, split_input
+    from KG_RAG.KG_Generate import split_input, query_simulation
+    reference = query_simulation(input_data)
+    sections = reference.split('二、')
+    reference_fact = sections[0].strip()
+    reference_law = '二、' + sections[1].split('（一）')[0].strip()
+    reference_compensation = ' (一) ' + sections[1].split('（一）')[1].strip()
     data = split_input(input_data)
-    laws = generate_legal_references(data["case_facts"], data["injury_details"])
-    first_part = generate_fact_statement(data["case_facts"] + '\n' + data["injury_details"])
-    second_part = convert_law(laws)
-    third_part = generate_compensate(data["compensation_request"])
-    return first_part + '\n\n' + second_part + '\n' + third_part 
+    first_part = generate_fact_statement(data["case_facts"] + '\n' + data["injury_details"], reference_fact)
+    second_part = reference_law
+    third_part = generate_compensate(data["compensation_request"], reference_compensation)
+    return first_part + '\n\n' + second_part + '\n\n' + third_part 
 
 tmp_prompt = """一、事故發生緣由:
 被告於110年12月13日10時1分許，駕駛車號00-0000號自用小客車，沿臺中市西屯區港隆街由凱旋路往黎明路方向行駛至黎明路岔路口時，因疏於注意減速讓幹道車優先通行，即貿然行駛，致發生與李承祐所騎車號000-0000普通重型機車（下稱系爭機車，李承祐當時係騎系爭機車搭載賴秀雲，沿黎明路由東往西方向行駛）擦撞之車禍事故（下稱系爭車禍事故）。
@@ -105,7 +109,8 @@ tmp_prompt = """一、事故發生緣由:
 李承祐並主張系爭車禍事故經其送交臺中市車輛行車事故鑑定委員會、臺中市車輛行車事故鑑定覆議委員會進行鑑定、覆議，支出鑑價費用5,000元，請求被告應給付一半即2,500元，並有鑑價費之統一發票為證。
 李承祐另外主張因受有上開傷害而無法上班，受有薪資損失57萬6000元。
 李承祐因系爭車禍事故經鑑定勞動能力減損12%，其係00年00月00日生，迄至110年12月13日發生車禍時，為45歲，經扣除李承祐前所主張不能工作損失之期間後，至自112年2月起算至李承祐65歲強制退休之年齡止，原告可工作之期間應為18年9月又21日；又李承祐於系爭車禍事故時並無工作，是以最低基本工資作為計算之標準，而依照行政院勞動部公布之110年最低基本工資為每月2萬4000元，則李承祐每月之勞動能力減損之金額應為2,880元，依霍夫曼式計算法扣除中間利息（首期給付不扣除中間利息）核計其金額為新臺幣45萬8897元。
-查李承祐為高職肄業，目前為自由職業，無固定收入，無存款、有汽機車各1部，無不動產，因系爭車禍事故受有腰椎椎間盤突出之傷害，受有精神上痛苦，爰請求精神慰撫金30萬元。"""
+查李承祐為高職肄業，目前為自由職業，無固定收入，無存款、有汽機車各1部，無不動產，因系爭車禍事故受有腰椎椎間盤突出之傷害，受有精神上痛苦，爰請求精神慰撫金30萬元。
+"""
 
 print(generate_lawsheet(tmp_prompt))
 

@@ -7,9 +7,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Neo4j 配置
-uri = os.getenv("NEO4J_URI")
+uri = os.getenv("NEO4J_URI_3068")
 username = os.getenv("NEO4J_USERNAME")
-password = os.getenv("NEO4J_PASSWORD")
+password = os.getenv("NEO4J_PASSWORD_3068")
 driver = GraphDatabase.driver(uri, auth=(username, password))
 
 # 索引保存路徑
@@ -21,11 +21,10 @@ model = SentenceTransformer("shibing624/text2vec-base-chinese")
 # 構建 FAISS 索引
 def build_faiss_index():
     with driver.session() as session:
-        results = session.run("MATCH (f:Fact) RETURN f.id AS id, f.text AS text, f.embedding AS embedding")
+        results = session.run("MATCH (f:模擬輸入) RETURN f.case_id AS id, f.text AS text, f.embedding AS embedding")
         embeddings = []
         fact_ids = []
         fact_texts = []
-        
         for record in results:
             fact_ids.append(record["id"])
             fact_texts.append(record["text"])
@@ -86,3 +85,15 @@ def get_statutes_for_case(fact_id):
             fact_id=fact_id
         )
         return [{"case_id": record["case_id"], "statutes": record["statutes"]} for record in results]
+    
+def get_simulation_output(sim_input_id):
+    with driver.session() as session:
+        results = session.run(
+            """
+            MATCH (s_out:模擬輸出)
+            WHERE s_out.case_id = $sim_input_id
+            RETURN s_out.id AS output_id, s_out.text AS output_text
+            """,
+            sim_input_id=sim_input_id
+        )
+        return [{"id": record["output_id"], "text": record["output_text"]} for record in results]
