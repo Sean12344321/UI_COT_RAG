@@ -26,19 +26,6 @@ template_outputs = [["gpt-4o-mini"]]  # 標題行
 template_outputs.extend([[item] for item in df2["gpt-4o-mini-2024-07-18\n3000筆"].tolist()[:50]])  # 將輸出每一項獨立一行
 
 inputs = [["模擬輸入內容"]]  # 標題行
-# inputs.extend([[item] for item in df["模擬輸入內容"].tolist()[:-1]])  # 將輸出每一項獨立一行
-# model_outputs = ([[generate_lawsheet(item)] for item in df["模擬輸入內容"].tolist()[0:48]])  # 將輸出每一項獨立一行
-# def write_sheets(inputs, range):
-#     body = {
-#         'values': inputs  
-#     }
-#     response = sheet.values().update(
-#         spreadsheetId=SPREADSHEET_ID,
-#         range=range,
-#         valueInputOption="RAW",
-#         body=body
-#     ).execute()
-#     print(f"{response.get('updatedCells')} cells updated.")
 
 # write_sheets(model_outputs, RANGE_WRITE_MODEL_OUTPUT)
 def write_sheets_single(output, row_index, range_base):
@@ -48,7 +35,7 @@ def write_sheets_single(output, row_index, range_base):
     # 確保 range_base 格式正確
     sheet_name = range_base.split('!')[0]  # 提取工作表名稱
     column_range = range_base.split('!')[1]  # 提取範圍
-    range_single = f"{sheet_name}!{column_range}{row_index + 1}"  # 轉換成 D1, D2, D3...
+    range_single = f"{sheet_name}!{column_range}{row_index + 1}"  
     
     print(f"Writing to range: {range_single}")  # 偵錯
     
@@ -63,6 +50,6 @@ def write_sheets_single(output, row_index, range_base):
     print(f"Row {row_index + 1} updated: {output}")
 
 # 逐行生成並即時寫入
-for i, item in enumerate(df["模擬輸入內容"].tolist()[9:]):
+for i, item in enumerate(df["模擬輸入內容"].tolist()[:]):
     output = generate_lawsheet(item)  # 生成單個輸出
-    write_sheets_single(output, i+10, "Sheet1!E:E")  # 即時寫入該行
+    write_sheets_single(output, i+1, "Sheet1!F:F")  # 即時寫入該行

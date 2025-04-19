@@ -122,7 +122,7 @@ def generate_fact_statement(input, reference_facts):
     size = len(reference_facts)
     cnt = 0 #生成次數
     while True:
-        input_truth_prompt = f"\n範例格式:{reference_facts[cnt]}" + truth_prompt
+        input_truth_prompt = f"\n範例格式:{reference_facts[int(cnt / 5)%size]}" + truth_prompt
         input = Tools.remove_input_specific_part(input)
         print("參考輸出:", reference_facts[int(cnt / 5)%size])
         result = Tools.combine_prompt_generate_response(input, input_truth_prompt)

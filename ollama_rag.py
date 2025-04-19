@@ -17,16 +17,17 @@ def generate_lawsheet(input_data):
     """處理單個生成請求並輸出結果"""
     from KG_RAG_B.KG_Generate import query_simulation
     from chunk_RAG.main import retrieval
-    userinput = input("請選擇使用的RAG資料庫(1: KG_RAG, 2: chunk_RAG): ")
-    if userinput == "1":
-        # 使用 KG_RAG
-        references = query_simulation(input_data)
-    elif userinput == "2":
-        # 使用 chunk_RAG
-        references = retrieval(input_data)
-    else:
-        print("請輸入正確的選項(1或2)")
-        return None
+    # userinput = input("請選擇使用的RAG資料庫(1: KG_RAG, 2: chunk_RAG): ")
+    # if userinput == "1":
+    #     # 使用 KG_RAG
+    #     references = query_simulation(input_data)
+    # elif userinput == "2":
+    #     # 使用 chunk_RAG
+    #     references = retrieval(input_data)
+    # else:
+    #     print("請輸入正確的選項(1或2)")
+    #     return None
+    references = query_simulation(input_data)
     facts = []
     laws = []
     compensations = []
@@ -68,4 +69,4 @@ tmp_prompt = """一、事故發生緣由：
 4. 原告乙○○大學畢業，現在豐年豐和企業股份有限公司上班，月薪約30,000元左右，名下無不動產；原告丙○○為二專畢業，受傷之前的月薪約34,000元左右，名下有汽車1輛，無不動產。
 """
 
-print(generate_lawsheet(tmp_prompt))
+# print(generate_lawsheet(tmp_prompt))

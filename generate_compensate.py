@@ -217,6 +217,8 @@ def compensate_iteration(user_input, reference):
             else:
                 input_compensate_head_check = f"段落一:{first_sentence}\n段落二{item}" + compensate_head_check
                 compensate_response = Tools.llm_generate_response(input_compensate_head_check)
+                print(compensate_response)
+                print("=" * 50)
                 if "accept" in compensate_response or "Accept" in compensate_response:
                     break
                 else:
