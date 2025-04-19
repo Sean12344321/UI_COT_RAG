@@ -1,0 +1,10 @@
+**/*.xlsx
+**/*.docx
+**/*.csv
+**/*.txt
+.env
+**/temp.py
+**/tempp.py
+**/test.py
+__pycache__
+TEMP_PROMT.txt
