@@ -1,0 +1,7 @@
+.env
+kg-ntpu-dd0483f97d9b.json
+test.py
+case_index_hnsw.faiss
+case_metadata_hnsw.npy
+__pycache__
+test_result.txt

@@ -1,2 +1,2 @@
-請自己建.env檔輸入你的Neo4j網址使用者名稱和密碼
-檔案可能路徑有問題記得改
+Neo4j_3068: KG_RAG
+Neo4j: chunk_RAG

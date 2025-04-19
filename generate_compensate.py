@@ -1,139 +1,257 @@
 from ollama import chat, ChatResponse
-import multiprocessing, re
-def generate_response(input_data):
-    """發送單次生成請求並回傳結果"""
-    try:
-        response: ChatResponse = chat(
-            messages=[
-                {
-                    'role': 'user',
-                    'content': input_data,
-                },
-            ],
-            model='kenneth85/llama-3-taiwan:8b-instruct-dpo',
-        )
-        return response['message']['content']
-    except Exception as e:
-        return f"Error: {e}"
+from utils import Tools
+import re
+single_money_summary = """你是一個格式輸出助手，任務是將原告的賠償項目與金額，依照指定格式列出，完全依據輸入，不得遺漏、改寫、推論、補充。
+【請務必遵守以下規則】：
+1. 必須完整列出所有原告及其所有賠償項目，不得遺漏任何原告或任何一項賠償項目。
+2. 保持輸入順序，不可顛倒。每位原告的賠償項目順序應與輸入一致。
+3. 金額必須為阿拉伯數字格式（0-9），並以 `XXX元` 呈現。
+4. 禁止出現加總過程、等號（=）、加號（+）或總金額文字，僅列出每筆明細金額。
+5. 每一筆賠償項目名稱必須簡潔明確，不可包含日期或敘述性說明
+6. 遵守格式規範，開頭使用「（一）」、「（二）」、「（三）」等標記，並以「元」結尾。
 
-tmp_prompts = """三、請求賠償的事實根據:
-原告甲父部分：
- 1.醫療費用：原告甲父因系爭事故受有脾臟重度撕裂傷合併腹內出血及休克、左側第6至第9肋骨骨折、左小腿及左腳踝大面積傷口、左側肺挫傷併少量血胸等傷害，為此赴衛生福利部基隆醫院（下稱部立基隆醫院）、長庚財團法人基隆長庚紀念醫院（下稱基隆長庚醫院）就醫，支出醫療費用合計5萬3,715元。
- 2.看護費用：原告甲父因受有前揭傷害，自110年2月16日起至110年3月3日在基隆長庚醫院住院治療並接受腹腔鏡血塊引流手術，住院期間需專人全日照顧，術後則因脾臟重度撕裂傷，需休養1個月；肋骨骨折部分則需休養3個月，而有接受專人照顧3個月之需求。故原告甲父主張住院期間以每日看護新臺幣2,500元計算，休養3個月部分則以半日看護費用1,250元計算，合計得請求看護費用為15萬2,500元。
- 3.交通費用：原告甲父因就醫需求，於110年2月16日曾自費搭乘救護車前往急診，其後並多次搭乘計程車往返住家及部立基隆醫院及基隆長庚醫院，合計支出7,215元，惟此處僅以965元為度，請求被告賠償其中965元。
- 4.工作收入損失：原告甲父於系爭事故發生時在生達化學製藥股份有限公司任職，於事發前1年（即110年度）之全年薪資為134萬0,292元，折算日薪為3,723元，又原告甲父因受前揭傷害而有3個月不能工作，於休養期間之工作收入損失合計為33萬5,070元。
- 5.精神慰撫金：原告因系爭事故受有脾臟重度撕裂傷，導致腹內出血、休克進入加護病房治療，住院期間並先後接受血管栓塞止血及腹內血塊引流手術，且出院後尚需休養3個月，迄今仍覺身體機能無法回復、不時疼痛，因此身心俱疲，所受打擊非屬一般，故請求被告賠償精神慰撫金80萬元。
- 6.B車受損修理費用及甲父所有之手機、眼鏡、手錶、衣服、安全帽價值損失：原告甲父因系爭事故需支出B車維修費用7,977元，並因系爭事故造成身上攜帶之手機、眼鏡、手錶；身著之安全帽及衣服破損，受有價值相當於6,250元之損害，合計受有1萬4,227元之損失。
+【輸出格式範例如下】：
+（一）醫療費: 9160元
+（二）交通費: 800元
+（三）精神撫慰金: 50000元
+
+【請根據使用者輸入內容，輸出相同格式的結果】：
+"""
+multiple_money_summary = """你是一個格式輸出助手，任務是將原告的賠償項目與金額，依照指定格式列出，完全依據輸入，不得遺漏、改寫、推論、補充。
+【請務必遵守以下規則】：
+1. 必須完整列出所有原告及其所有賠償項目，不得遺漏任何原告或任何一項賠償項目。
+2. 每一個賠償項目皆需直接列出，並於項目後加上該原告姓名（例如：「醫療費用（原告甲部分）」），不得以子項或縮排方式呈現。
+3. 保持輸入順序，不可顛倒。每位原告的賠償項目順序應與輸入一致。
+4. 金額必須為阿拉伯數字格式（0-9），並以 `XXX元` 呈現。
+5. 禁止出現加總過程、等號（=）、加號（+）或總金額文字，僅列出每筆明細金額。
+6. 每一筆賠償項目名稱必須簡潔明確，不可包含日期或敘述性說明
+7. 遵守格式規範，開頭使用「（一）」、「（二）」、「（三）」等標記，並以「元」結尾。
+
+【輸出格式範例如下】：
+（一）醫療費用（原告甲部分）: 1036元
+（二）車損修理費用（原告甲部分）: 413300元
+（三）醫療費用（原告乙部分）: 4862元
+（四）薪資損失（原告乙部分）: 3225元
+
+【請根據使用者輸入內容，輸出相同格式的結果】：
+"""
+detect_name = """你是一個資訊擷取助手，請根據下列輸入的民事訴狀內容，判斷是否有提及特定原告姓名。如果有，請列出該姓名；如果沒有出現任何原告姓名，則統一輸出為「原告」。
+
+【任務規則】：
+1. 請優先尋找明確出現的人名（例如：「林小明」、「甲○○」等），並以其作為原告名稱。
+2. 如果沒有明確人名，則統一使用「原告」作為名稱。
+3. 不需解釋或重述內容，只需輸出一個人名或「原告」。
+4. 若出現多名原告（如「陳○○及林○○」），請分別列出所有人名，並且用頓號分隔。
+
+【請根據使用者輸入內容進行判斷並輸出原告名稱】：
+"""
+user_input = """
+一、事故發生緣由:
+ 被告於民國105年4月12日13時27分許，駕駛租賃小客車沿新北市某區某路往富國路方向行駛。行經福營路342號前時，被告跨越分向限制線欲繞越前方由原告所駕駛併排於路邊臨時停車後適欲起駛之車輛。被告為閃避對向來車，因而駕車自後追撞原告駕駛車輛左後車尾。當時天候晴朗、日間自然光線、柏油道路乾燥無缺陷或障礙物、視距良好，被告理應注意車前狀況及兩車並行之間隔，隨時採取必要之安全措施，但卻疏未注意而發生事故。
  
- 原告甲母部分：
- 精神慰撫金：原告甲母因系爭事故受有四肢及臉部多處挫傷及擦傷，因此破相，且傷口難免留疤而永久影響外觀。職故，原告甲母確因系爭事故受有精神上痛苦，爰請求被告賠償精神慰撫金5萬元。
+ 二、原告受傷情形:
+ 原告因此車禍受有左膝挫傷、半月軟骨受傷等傷害。原告於105年5月2日、7日、7月16日、8月13日、8月29日至醫院門診就診，105年8月2日進行核磁共振造影檢查。根據醫院開立的診斷證明書，原告需休養1個月。
  
- 原告甲部分：
- 精神慰撫金：原告甲於系爭事故發生時年紀尚輕，因系爭事故受有左膝挫傷、擦傷及左手第五掌骨閉鎖性骨折之傷害，經多次回診治療，左手掌需以外物固定而無法彎曲，生活學業受有很大影響，且有永久影響左手握力與日常生活功能之虞。職故，原告確因系爭事故受有精神上痛苦，爰請求被告賠償精神慰撫金15萬元。"""
-
-money_abstract = """規則:
-1. 完整列出所有原告及賠償項目，不得遺漏 任何原告 或 任何一項賠償項目。
-2. 保持輸入順序，每位原告的賠償項目 順序應與輸入完全一致，不得調換。
-3. 金額必須為阿拉伯數字格式（0-9），不得使用中文數字，並以 `XXX元` 格式呈現。
-4. 每一項[元]後面及為。或！，不得額外生成補充資訊。
-5. 不得新增分層細項（如「臺中榮總: 9,160元」），僅保留主要項目名稱與總金額。
-輸出格式:
-=======================
-(一). [項目名稱]: XXX元
-(二). [項目名稱]: XXX元
-(三). [項目名稱]: XXX元
-=======================
+ 三、請求賠償的事實根據:
+ 1. 醫療復健費用190元
+ 2. 車輛修復費用181,144元
+ 3. 交通費用4,500元
+ 4. 休養期間工作收入損失33,000元
+ 5. 慰撫金99,000元
+ 
+ 原告因傷不良於行，上下班須搭乘計程車，支出交通費用。原告的車輛因事故受損需要修理，修理費用包括工資費用88,774元和零件費用92,370元。原告需休養1個月無法工作，造成工作收入損失。
+ 
+ 原告學歷為高職畢業，目前從事打零工，日薪約900元，105年度所得124,719元，名下有動產。原告因本次事故受傷，不僅身體受損，還需經歷刑事偵審及民事訴訟過程，耗費大量時間和精神，因此請求精神慰撫金。
+ 
+ 綜上所述，原告依據民法第184條第1項前段、第191條之2、第193條第1項及第195條第1項前段之規定，請求被告賠償上述損害，總計317,834元及自起訴狀繕本送達翌日起至清償日止，按年息5%計算之利息。
 """
-money_prompt_multiplePeople = """指示:
-請根據輸入的賠償金額資料，生成賠償金額，格式需符合以下要求:
+reference = """（一）醫療費用：146,363元
+1. 原告莊士紘醫療費用：800元
+2. 原告林淑玲醫療費用：145,563元
 
-依照原告分類，先寫「(一)原告X部分」，再依序列出各項賠償金額。
-逐項列出費用，每項費用需包含:
-費用名稱(如「醫療費用」、「薪資損失」、「車損修理費用」等)。
-具體金額與簡要原因。
-確保每位原告都要有完整的賠償項目，不得遺漏任何一位原告或任何一項賠償項目。
-輸出格式範例:
-=================
-(一)原告X部分:
-1.醫療費用:XXX元
-原告X因本次事故受傷，前往XXX醫院治療，支出醫療費用XXX元。
-2.薪資損失:XXX元
-原告X因受傷無法工作，造成薪資損失XXX元。
-3. 精神慰撫金: XXX元
-原告X因事故遭受精神痛苦，請求精神慰撫金XXX元。
-(二)原告Y部分:
-1.醫療費用:YYY元
-原告Y因本次事故受傷，前往YYY醫院治療，支出醫療費用YYY元。
-2.薪資損失:YYY元
-原告Y因受傷無法工作，造成薪資損失YYY元。
-3. 精神慰撫金: YYY元
-原告Y因事故遭受精神痛苦，請求精神慰撫金YYY元。
-=================
+（二）交通費用：6,105元
+原告林淑玲因本件車禍受有右側遠端股骨粉碎性骨折之傷害，需搭乘他人駕駛車輛接送往返醫院就醫，支出交通費用6,105元。
+
+（三）看護費用：66,000元
+原告林淑玲因本件車禍受有右側遠端股骨粉碎性骨折之傷害，需他人看護照顧一個月，以每日2,200元計算，共計66,000元。
+
+（四）財物損害：454,869元
+1. 系爭汽車修理費：438,069元
+2. 原告莊士紘眼鏡毀損：6,800元
+
+（五）工作損失：77,600元
+1. 原告莊士紘工作損失：5,600元
+2. 原告林淑玲工作損失：72,000元
+
+（六）慰撫金：180,000元
+1. 原告莊士紘：30,000元
+2. 原告林淑玲：150,000元
+
+（七）綜上所陳，被告應連帶賠償原告之損害，包含醫療費用146,363元、交通費用6,105元、看護費用66,000元、財物損害454,869元、工作損失77,600元及慰撫金180,000元，總計930,937元。
 """
-money_output_check = """請依照以下步驟進行嚴格檢查，並針對每項細節提供判斷與原因：
+compensate_prompt = f"""
+你是一位熟悉法律文書格式的語言模型。請從`輸入`中讀取內容，並以`生成格式`作為開頭，接續撰寫一段描述句，說明該筆費用的原因與金額使用情況。
+⚠️請特別注意：
+1. 你應該 **僅生成與 `生成格式` 所示金額相符的那一筆費用描述**。如果 `輸入` 中包含多筆金額或多位人員，請勿引用其他不相關的金額。
+2. 輸出應包含 `生成格式` 開頭的標題行與一段敘述，兩者缺一不可。
+3. 金額格式須為「#,###元」，務必與 `生成格式` 數字一致。
+4. 第二行應僅為事實陳述，包括傷勢、用途、支出情形等，不得包含任何法律條文、條號、責任、請求、結語或主觀評價，例如「被告應賠償」、「依據民法」等字句皆不得出現。
+5. 請以「（」開頭。"""
 
-賠償項目完整性檢查
--不得只有賠償項目以及金額，必須要有原因說明。
-輸出格式：
-賠償項目檢查: 是/否, 原因: XXX
+compensate_head_check = f"""
+請比較上述兩筆資料，判斷它們是否代表相同的賠償項目。你需要依據以下三項標準進行比對：
 
-正確性檢查
-- 輸入項目必須與摘要一致，不得有任何遺漏，不得缺少原告。
-輸出格式：
-正確性: 是/否, 原因:(把摘要一項一項列出來查看輸入是否有遺漏)
+1. 【項目標號】是否一致（例如：（三））。
+2. 【賠償項目名稱】是否一致（例如：慰撫金、機車修理費等）。
+3. 【整體金額標題行】是否描述相同的費用內容。
 
-最終判決
-如果所有檢查項目都為「是」，輸出: 判決結果: finished
-如果有任一項為「否」，輸出: 判決結果: reset
+如果三者都一致，則視為「相同的賠償項目」。若有任何一項不同，請說明是哪些項目不同，並判定為「不同的賠償項目」。
+請依照以下格式生成輸出：
+===========================
+[推理過程]:
+(請寫下每一項檢查的判斷過程)
+
+[判決結果]:
+(填入accept 或 reject)
+===========================
+⚠️ 注意：只要任何一項為「否」，就必須輸出「reject」。
+不要同時出現 accept 和 reject，只能選一個。
 """
-tmp_reference = """(一) 醫療費用：450元
-原告因本次事故受傷，前往安泰醫院就醫，支出醫療費用450元，有安泰醫院診斷證明書、門診醫療費用收據可證。
+compensation_sum_prompt = """請參考以下「範例格式」，將給定的各筆損害賠償項目重新整理成總結句，格式須一致："""
+labels = [
+    '（一）', '（二）', '（三）', '（四）', '（五）', '（六）', '（七）', '（八）', '（九）', '（十）',
+    '（十一）', '（十二）', '（十三）', '（十四）', '（十五）', '（十六）', '（十七）', '（十八）', '（十九）', '（二十）',
+    '（二十一）', '（二十二）', '（二十三）', '（二十四）', '（二十五）', '（二十六）', '（二十七）', '（二十八）', '（二十九）', '（三十）'
+]
+def check_and_generate_summary_items(text):
+    text_array = []  # 去除多餘的空格和換行
+    lines = text.splitlines()
+    for i, line in enumerate(lines, start=1):
+        line = line.rstrip()
+        if len(line) >= 4 and line[0] == '（' and (line[2] == '）' or line[3] == '）') and '+' not in line and '=' not in line and line[-1] == '元':
+            match = re.search(r'(\d+(,\d{3})*|\d+)元$', line)
+            if match and match.group(0).replace(',', '') == '0元':
+                print("money should not be 0")
+                return False
+            match = re.search(r'（(.*?)）', line)
+            if match.group(0) not in labels: # 括號裡面不是中文字
+                print("（）should contain chinese")
+                return False
+            line = line[:match.start()] + labels[len(text_array)] + line[match.end():]
+            line = re.sub(r'[。\.]', '', line)
+            text_array.append(line)
+        elif line != "":
+            print("format error")
+            return False
+    return text_array
 
-（二）車輛修復費用：87,550元
-系爭車輛因本次事故受損，需支付維修費用共計87,550元，包含工資費用25,000元、烤漆費用9,300元及零件費用53,250元，有允發企業行估價單、系爭車輛受損照片可證。另車主陳林美儉已將系爭車輛之損害賠償請求權讓與原告，並以刑事附帶民事起訴狀繕本之送達作為債權讓與之通知。
-
-（三）慰撫金：80,000元
-原告為高職畢業，在屏南工業區工作，每月收入約3萬元。因本次車禍受有顏面左側挫傷合併0.5公分撕裂傷、併腦震盪症狀等傷害，造成身心極大痛苦，且被告迄今未與原告和解或為相當之賠償，爰請求慰撫金80,000元。
-
-（四）綜上所陳，被告應賠償原告之損害，包含醫療費用450元、車輛修復費用87,550元及慰撫金80,000元，總計168,000元。"""
-
-summary_output_generate = """根據輸入，生成以下賠償總額，嚴格遵照格式，不要有換行或空格。:
-綜上所陳，被告應賠償原告X之損害，包含醫療費用XXX元...，總計XXX元；應賠償原告Y之損害，包含...，總計XXX元。原告合計請求總賠償XXX元。
-"""
-
-def remove_last_parenthesis_section(text):
-   pattern = r"\(\w+\)(?!.*\(\w+\)).*"  # 找到最後一個 (X) 開頭的段落
-   modified_text = re.sub(pattern, "", text, flags=re.DOTALL).strip()
-   return modified_text
-
-def combine_prompt_generate_lawsheet(input, prompt):
-   money_input = f"""輸入:
-{input}
-{prompt}"""
-   return generate_response(money_input)
-money_prompt = """
-嚴格遵照範例格式生成賠償金額，參考範例格式，輸入以及摘要，確保有賠償金額以及解釋原因，
-並且以(一)開頭，最後以綜上所陳做結尾。
-"""
-def generate_compensate(input, reference_compensation):
-    abstract = combine_prompt_generate_lawsheet(input, money_abstract)
-    print(abstract)
+def generate_compensate_summary(input):
+    """1. 取得原告姓名，判斷是單名還是多名原告來改變提示詞"""
+    name = Tools.combine_prompt_generate_response(input, detect_name)
+    while '\n' in name:
+        print("姓名格式錯誤，重新生成")
+        print(name)
+        name = Tools.combine_prompt_generate_response(input, detect_name)
+    print(name)
+    if '、' in name:
+        prompt = multiple_money_summary
+    else:
+        prompt = single_money_summary
+    """2. 取得賠償摘要"""
+    summary = Tools.combine_prompt_generate_response(input, prompt)
+    while(check_and_generate_summary_items(summary) == False):
+        print("格式錯誤，重新生成")
+        print(summary)
+        print("=" * 50)
+        summary = Tools.combine_prompt_generate_response(input, prompt)
+    print(summary)
     print("=" * 50)
-    global money_prompt, money_output_check
-    money_prompt = f"""範例格式\n{reference_compensation}\n摘要\n{abstract}""" + money_prompt
-    money_output_check = f"""摘要:{abstract}\n{money_output_check}"""
-    while True:
-        output = combine_prompt_generate_lawsheet(input, money_prompt)
-        output = output.replace('*', '')
-        print(output)
-        print("=" * 50)
-        judge_money = combine_prompt_generate_lawsheet(output, money_output_check)
-        print(judge_money)
-        print("=" * 50)
-        if "reset" in judge_money:
-            continue
-        if "finished" in judge_money:
-            break
-    return output
+    return summary
 
-# print(generate_compensate(tmp_prompts, tmp_reference))
+    
+def generate_reference_array(reference):
+    parts = re.split(r'（[一二三四五六七八九十]{1,3}）', reference)[1:]
+    results = []
+    for i, part in enumerate(parts):
+        lines = part.strip().splitlines()
+        if (
+            not lines[0].strip().endswith("元")
+            or (
+                part.count('\n') > 10
+                and any(x in part for x in ['1.', '2.', '3.'])
+            )
+        ) and i != len(parts) - 1:
+            lines = lines[1:]
+            combined = "\n".join(lines)
+            sections = re.split(r'\n(?=\d+\.\s)', combined)
+            for section in sections:
+                new_text = re.sub(r'^\d+\.', f'{labels[len(results)]}', section)
+                if new_text != '' and new_text[0] != '（':
+                    new_text = f'{labels[len(results)]} {new_text}'
+                results.append(new_text)
+        else:
+            part = labels[len(results)] + part.strip()
+            results.append(part)
+    return results
+
+
+def compensate_iteration(user_input, reference):
+    summary = generate_compensate_summary(user_input)
+    compensate_items = check_and_generate_summary_items(summary)
+    reference_array = generate_reference_array(reference)
+    result = ""
+    for i, item in enumerate(compensate_items):
+        output = f"""==============================
+    {item}
+    [接續撰寫一段描述句]
+    ==============================="""
+        retry_count = 0
+        input_compensate_prompt = compensate_prompt + f"\n\n生成格式:\n{output}"
+        while True:
+            response = Tools.combine_prompt_generate_response(user_input, input_compensate_prompt)
+            first_sentence = response.strip().split('\n')[0].strip()    
+            if first_sentence[0] != '（' or first_sentence[-1] != '元':
+                print("格式錯誤，重新生成")
+                print(response)
+                print("=" * 50)
+            else:
+                input_compensate_head_check = f"段落一:{first_sentence}\n段落二{item}" + compensate_head_check
+                compensate_response = Tools.llm_generate_response(input_compensate_head_check)
+                if "accept" in compensate_response or "Accept" in compensate_response:
+                    break
+                else:
+                    print("COT檢測錯誤，重新生成")
+                    print(response)
+                    print("=" * 50)
+                    retry_count += 1
+            if retry_count >= 7:
+                print(f"第{i+1}筆 item 嘗試超過 7 次仍無法通過檢查，跳過處理並重新生成整體 text。\n")
+                return None
+        #去掉多餘的空白行
+        lines = response.split('\n')
+        non_empty_lines = [line for line in lines if line.strip() != '']
+        response = '\n'.join(non_empty_lines).strip()
+        print(response)
+        print("=" * 50)
+        result += response + "\n\n"
+    # 生成總結句
+    global compensation_sum_prompt
+    input_compensation_sum_prompt = compensation_sum_prompt + f"""【範例格式】\n{reference_array[-1]}\n\n【賠償項目】\n{summary}【請完成以下總結句】\n{labels[len(compensate_items)]}"""
+    sum_response = Tools.llm_generate_response(input_compensation_sum_prompt)
+    if sum_response[0] != '（':
+        sum_response = labels[len(compensate_items)] + sum_response
+    result += sum_response
+    return result
+
+def generate_compensate(user_input, references):
+    # 生成賠償項目
+    result = None
+    id = 0
+    while result == None:#生成錯誤
+        print(references[(id) % 5])
+        result = compensate_iteration(user_input, references[(id) % 5])
+        id += 1
+    return result
+
+if __name__ == "__main__":
+    generate_compensate(user_input, reference)

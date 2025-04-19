@@ -3,7 +3,8 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from dotenv import load_dotenv
 import pandas as pd
-from rag_finetune.ollama_rag import generate_output
+from ollama_rag import generate_lawsheet
+from test import *
 load_dotenv()
 
 # Google Sheets API 配置
@@ -11,14 +12,12 @@ SERVICE_ACCOUNT_FILE = os.getenv("SERVICE_ACCOUNT_FILE")
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 # 試算表 ID 和範圍
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
-RANGE_WRITE_INPUT = 'Sheet1!A:A'  # 寫入輸入範圍
 RANGE_WRITE_TEMPLATE_OUTPUT = 'Sheet1!B:B' # 寫入gpt-4o-mini 輸出範圍
-RANGE_WRITE_MODEL_OUTPUT = 'Sheet1!E10:E' # 寫入模型llama3.1輸出範圍
+# RANGE_WRITE_MODEL_OUTPUT = 'Sheet1!F:F' # 寫入模型輸出範圍
 # 初始化 Google Sheets 客戶端
 creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
 service = build('sheets', 'v4', credentials=creds)
-sheet = service.spreadsheets()
-
+sheet =  service.spreadsheets().values()
 # 載入數據
 df = pd.read_csv('dataset.csv')
 df2 = pd.read_csv('dataset(no_law).csv')
@@ -27,19 +26,43 @@ template_outputs = [["gpt-4o-mini"]]  # 標題行
 template_outputs.extend([[item] for item in df2["gpt-4o-mini-2024-07-18\n3000筆"].tolist()[:50]])  # 將輸出每一項獨立一行
 
 inputs = [["模擬輸入內容"]]  # 標題行
-inputs.extend([[item] for item in df["模擬輸入內容"].tolist()[:-1]])  # 將輸出每一項獨立一行
-model_outputs = ([[generate_output(item)] for item in df["模擬輸入內容"].tolist()[8:15]])  # 將輸出每一項獨立一行
+# inputs.extend([[item] for item in df["模擬輸入內容"].tolist()[:-1]])  # 將輸出每一項獨立一行
+# model_outputs = ([[generate_lawsheet(item)] for item in df["模擬輸入內容"].tolist()[0:48]])  # 將輸出每一項獨立一行
+# def write_sheets(inputs, range):
+#     body = {
+#         'values': inputs  
+#     }
+#     response = sheet.values().update(
+#         spreadsheetId=SPREADSHEET_ID,
+#         range=range,
+#         valueInputOption="RAW",
+#         body=body
+#     ).execute()
+#     print(f"{response.get('updatedCells')} cells updated.")
 
-def write_sheets(inputs, range):
-    body = {
-        'values': inputs  
-    }
-    response = sheet.values().update(
+# write_sheets(model_outputs, RANGE_WRITE_MODEL_OUTPUT)
+def write_sheets_single(output, row_index, range_base):
+    """將單行輸出即時寫入 Google Sheets"""
+    print(f"DEBUG: row_index={row_index}, range_base={range_base}")  # 偵錯
+    
+    # 確保 range_base 格式正確
+    sheet_name = range_base.split('!')[0]  # 提取工作表名稱
+    column_range = range_base.split('!')[1]  # 提取範圍
+    range_single = f"{sheet_name}!{column_range}{row_index + 1}"  # 轉換成 D1, D2, D3...
+    
+    print(f"Writing to range: {range_single}")  # 偵錯
+    
+    body = {'values': [[output]]}
+
+    response = sheet.update(
         spreadsheetId=SPREADSHEET_ID,
-        range=range,
+        range=range_single,
         valueInputOption="RAW",
         body=body
     ).execute()
-    print(f"{response.get('updatedCells')} cells updated.")
+    print(f"Row {row_index + 1} updated: {output}")
 
-write_sheets(model_outputs, RANGE_WRITE_MODEL_OUTPUT)
+# 逐行生成並即時寫入
+for i, item in enumerate(df["模擬輸入內容"].tolist()[9:]):
+    output = generate_lawsheet(item)  # 生成單個輸出
+    write_sheets_single(output, i+10, "Sheet1!E:E")  # 即時寫入該行

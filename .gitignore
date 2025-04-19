@@ -3,3 +3,6 @@ __pycache__/
 venv/
 .chainlit
 service_account.json
+test.py
+fact_index_hnsw.faiss
+fact_metadata_hnsw.npy

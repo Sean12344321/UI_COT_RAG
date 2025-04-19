@@ -1,68 +1,93 @@
 from ollama import chat, ChatResponse
 import re
-def generate_response(input_data):
-    """發送單次生成請求並回傳結果"""
-    try:
-        response: ChatResponse = chat(
-            messages=[
-                {
-                    'role': 'user',
-                    'content': input_data,
-                },
-            ],
-            model='kenneth85/llama-3-taiwan:8b-instruct-dpo',
-        )
-        return response['message']['content']
-    except Exception as e:
-        return f"Error: {e}"
-tmp_prompts = """三、請求賠償的事實根據:
-原告賴秀雲主張因系爭車禍事故受有上開傷害，而前往臺中榮民總醫院（下稱臺中榮總）就醫花費9,160元，於高堂中醫診所花費4萬4628元，花費蕭永明骨科診所診療費1萬5350元、新奇美診所診療費4,100元。
-並且因系爭車禍事故受傷，支出紗布及藥水衍生損失4,050元，並有發票及收據為證。
-其因系爭車禍事故受傷，受有不能工作之損失總計10週，金額合計6萬2970元，並有臺中榮總診斷證明書、員工薪資單為證。
-並因系爭車禍事故而導致系爭機車損壞，維修之零件金額為1萬8200元，工資金額為1萬800元，零件經計算折舊後，加計工資之維修費用結果為1萬2620元，，有系爭機車維修估價單為證。
-而賴秀雲之眼鏡架因系爭車禍事故損壞，損失4,250元。
-另查賴秀雲為00年00月00日出生，迄至系爭車禍事故發生時之110年12月13日，已年滿71歲，對照其因系爭車禍事故，受有右肘、右足、右側胸壁挫傷、右足撕裂傷等傷害，衡情應有搭車前往就醫之必要其因系爭車禍事故受傷至醫院治療，故一共支出計程車費用2萬1225元。
-賴秀雲更因系爭車禍事故受傷後，受有勞動力減損2萬3622元。
-末查賴秀雲為國小畢業，目前已退休，無收入，系爭車禍事故發生前月薪約2萬6000元，無存款、無汽車及不動產，因系爭車禍事故受有右肘、右足、右側胸壁挫傷、右足撕裂傷等傷害，造成精神痛苦，爰請求精神慰撫金30萬元。
 
-原告李承祐主張因系爭車禍事故受有上開傷害，前往臺中榮總就診花費醫藥費用9,290元、高堂聯合中醫診所醫藥費用1萬2000元以及蕭永明骨科診所醫藥費用2萬3150元。
-另外李承祐因傷復健需要購買護腰莢1,242元。
-而李承祐因上開傷害而不良於行，需支出就醫之交通費用1萬9755元。
-李承祐並主張系爭車禍事故經其送交臺中市車輛行車事故鑑定委員會、臺中市車輛行車事故鑑定覆議委員會進行鑑定、覆議，支出鑑價費用5,000元，請求被告應給付一半即2,500元，並有鑑價費之統一發票為證。
-李承祐另外主張因受有上開傷害而無法上班，受有薪資損失57萬6000元。
-李承祐因系爭車禍事故經鑑定勞動能力減損12%，其係00年00月00日生，迄至110年12月13日發生車禍時，為45歲，經扣除李承祐前所主張不能工作損失之期間後，至自112年2月起算至李承祐65歲強制退休之年齡止，原告可工作之期間應為18年9月又21日；又李承祐於系爭車禍事故時並無工作，是以最低基本工資作為計算之標準，而依照行政院勞動部公布之110年最低基本工資為每月2萬4000元，則李承祐每月之勞動能力減損之金額應為2,880元，依霍夫曼式計算法扣除中間利息（首期給付不扣除中間利息）核計其金額為新臺幣45萬8897元。
-查李承祐為高職肄業，目前為自由職業，無固定收入，無存款、有汽機車各1部，無不動產，因系爭車禍事故受有腰椎椎間盤突出之傷害，受有精神上痛苦，爰請求精神慰撫金30萬元。"""
-money_prompt_multiplePeople = """指示:
-請根據輸入的賠償金額資料，生成賠償金額，格式需符合以下要求:
+class Tools:
+    def llm_generate_response(input_data):
+        """
+        use LLM to generate response
+        Args:
+            input_data (str): input data to generate response
+        Returns:
+            response (str): generated response
+        """
+        try:
+            response: ChatResponse = chat(
+                messages=[
+                    {
+                        'role': 'user',
+                        'content': input_data,
+                    },
+                ],
+                model='kenneth85/llama-3-taiwan:8b-instruct-dpo',
+            )
+            return response['message']['content']
+        except Exception as e:
+            return f"Error: {e}"
+    
+    def split_user_input(user_input):
+        """
+        split user input by 一、二 and 三
+        Args:
+            user_input (str): input to split
+        Returns:
+            Dictionary of sections(case_facts, injury_details, compensation_request)
+        """
+        sections = re.split(r"(一、|二、|三、)", user_input)
+        input_dict = {
+            "case_facts": sections[2].strip(),
+            "injury_details": sections[4].strip(),
+            "compensation_request": sections[6].strip()
+        }
+        return input_dict
 
-依照原告分類，先寫「(一)原告X部分」，再依序列出各項賠償金額。
-逐項列出費用，每項費用需包含:
-費用名稱(如「醫療費用」、「薪資損失」、「車損修理費用」等)。
-具體金額與簡要原因。
-確保每位原告都要有完整的賠償項目，不得遺漏任何一位原告或任何一項賠償項目。
-輸出格式範例:
-=================
-(一)原告X部分:
-1.醫療費用:XXX元
-原告X因本次事故受傷，前往XXX醫院治療，支出醫療費用XXX元。
-2.薪資損失:XXX元
-原告X因受傷無法工作，造成薪資損失XXX元。
-3. 精神慰撫金: XXX元
-原告X因事故遭受精神痛苦，請求精神慰撫金XXX元。
-(二)原告Y部分:
-1.醫療費用:YYY元
-原告Y因本次事故受傷，前往YYY醫院治療，支出醫療費用YYY元。
-2.薪資損失:YYY元
-原告Y因受傷無法工作，造成薪資損失YYY元。
-3. 精神慰撫金: YYY元
-原告Y因事故遭受精神痛苦，請求精神慰撫金YYY元。
-=================
-"""
-
-def combine_prompt_generate_lawsheet(input, prompt):
-   money_input = f"""輸入:
-{input}
-{prompt}"""
-   return generate_response(money_input)
-
-print(combine_prompt_generate_lawsheet(tmp_prompts, money_prompt_multiplePeople))
+    def split_user_output(output):
+        """
+        split lawsheet by 一、二 and 綜上所陳
+        Args:
+            output (str): output to split
+        Returns:
+            Dictionary of sections(fact, law, compensation)
+        """
+        sections = output.split('二、')
+        if len(sections) != 2:
+            print("警告: 無法正確識別文本標記。請確保格式為「一、」開頭，然後有「二、」和(一)")
+            return {"fact": "", "law": "", "compensation": ""}
+        sub_sections = sections[1].split('（一）')
+        reference_fact = sections[0].strip()
+        reference_law = '二、' + sub_sections[0].strip()
+        reference_compensation = ' (一) ' + sub_sections[1].strip()
+        return {
+            "fact": reference_fact,
+            "law": reference_law,
+            "compensation": reference_compensation
+        }
+    
+    def remove_input_specific_part(input):
+        """
+        remove「一、事故發生緣由:」and「二、原告受傷情形:」
+        Args:
+            input (str): input text to clean
+        Returns:
+            str: cleaned text
+        """
+        parts = re.split(r'一、事故發生緣由[:：]', input)
+        if len(parts) > 1:
+            input = parts[1]  # 把後段當作新的 input
+        # 再切割「二、原告受傷情形：」
+        parts = re.split(r'二、原告受傷情形[:：]', input)
+        if len(parts) > 1:
+            input = parts[0] + parts[1]  # 把後段當作最終的 text（繼續保留後續內容）
+        return input.strip().replace('\n', '')
+    def combine_prompt_generate_response(input, prompt):
+        """
+        combine input and prompt to generate response
+        Args:
+            input (str): input text
+            prompt (str): prompt text
+        Returns:
+            str: generated fact
+        """
+        fact_input = f"""輸入:
+        {input}
+        {prompt}"""
+        return Tools.llm_generate_response(fact_input) 

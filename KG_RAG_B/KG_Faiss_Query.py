@@ -16,7 +16,7 @@ driver = GraphDatabase.driver(uri, auth=(username, password))
 INDEX_PATH = "fact_index_hnsw.faiss"
 
 # 初始化嵌入模型
-model = SentenceTransformer("shibing624/text2vec-base-chinese")
+model = SentenceTransformer("shibing624/text2vec-base-chinese", device = 'cpu')#如果不會out of memory可以把device刪掉
 
 # 構建 FAISS 索引
 def build_faiss_index():

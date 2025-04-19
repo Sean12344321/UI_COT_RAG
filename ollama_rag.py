@@ -2,115 +2,70 @@ import pandas as pd
 import os, sys
 from ollama import chat, ChatResponse
 from generate_compensate import generate_compensate
-from generate_truth import generate_fact_statement
+from generate_truth import generate_fact_statement, generate_simple_fact_statement
+from utils import Tools
 os.chdir(os.path.dirname(__file__))
 # 將 KG_RAG 目錄添加到 sys.path
-sys.path.append(os.path.join(os.path.dirname(__file__), "KG_RAG"))
+sys.path.append(os.path.join(os.path.dirname(__file__), "KG_RAG_B"))
+sys.path.append(os.path.join(os.path.dirname(__file__), "chunk_RAG"))
 df = pd.read_csv('dataset.csv')
 df2 = pd.read_csv('dataset(no_law).csv')
 inputs = df["模擬輸入內容"].tolist()[:-2]
 template_output = df2["gpt-4o-mini-2024-07-18\n3000筆"].tolist()
 
-# 單位原告
-# money_prompt_singlePerson = """請依照以下格式撰寫，輸出必須分為兩個部分:
-# 1. 逐一列出原告的費用，將費用依功能進行歸類，例如:「醫療花費」、「精神慰撫金」、「工作損失」等，而非列出過於詳細的細項(如具體診所名稱)。
-# 2. 最後統一撰寫「綜上所陳」段落，總結這位原告的損害賠償金額。
-# 請注意:
-# - 僅列出金額大於 0 的項目，若某項費用為 0 元，請忽略該項目，不需顯示。
-
-# 範例如下:
-# (一) {費用項目1}費用:台幣{費用金額1}元
-#    原告因{事故原因1}導致{後果或需要醫療的情況1}，產生相關費用或損失，共計{費用金額1}元。
-# (二) {費用項目2}費用:台幣{費用金額2}元
-#    原告因{事故原因2}導致{後果或需要醫療的情況2}，產生相關費用或損失，共計{費用金額2}元。
-# (三) 綜上所陳，應連帶賠償原告{受害者名稱1}之損害，包含{費用項目1}費用{費用金額1}元，{費用項目2}費用{費用金額2}元，共計{總金額}元；應連帶賠償原告{受害者名稱2}之損害，包含{費用項目1}費用{費用金額1}元，共計{總金額}元。
-# """
-#多位原告
-def generate_response(input_data):
-    """發送單次生成請求並回傳結果"""
-    try:
-        response: ChatResponse = chat(
-            messages=[
-                {
-                    'role': 'user',
-                    'content': input_data,
-                },
-            ],
-            model='kenneth85/llama-3-taiwan:8b-instruct-dpo',
-        )
-        return response['message']['content']
-    except Exception as e:
-        return f"Error: {e}"
-
-def convert_law(laws):
-    transfer = {
-    "民法第184條": "「因故意或過失，不法侵害他人之權利者，負損害賠償責任。」民法第184條第1項前段",
-    "民法第185條": "「汽車、機車或其他非依軌道行駛之動力車輛，在使用中加損害於他人者，駕駛人應賠償因此所生之損害。但於防止損害之發生，已盡相當之注意者，不在此限。」民法第185條第1項",
-    "民法第187條": "「無行為能力人或限制行為能力人，不法侵害他人之權利者，以行為時有識別能力為限，與其法定代理人連帶負損害賠償責任。」民法第187條第1項",
-    "民法第188條": "「受僱人因執行職務，不法侵害他人之權利者，由僱用人與行為人連帶負損害賠償責任。」第188條第1項本文",
-    "民法第191-2條": "「汽車、機車或其他非依軌道行駛之動力車輛，在使用中加損害於他人者，駕駛人應賠償因此所生之損害。但於防止損害之發生，已盡相當之注意者，不在此限。」民法第191條之2",
-    "民法第193條": "「不法侵害他人之身體或健康者，對於被害人因此喪失或減少勞動能力或增加生活上之需要時，應負損害賠償責任。」民法第193條第1項",
-    "民法第195條": "「不法侵害他人之身體、健康、名譽、自由、信用、隱私、貞操，或不法侵害其他人格法益而情節重大者，被害人雖非財產上之損害，亦得請求賠償相當之金額。」民法第195條第1項",
-    }
-    for original, replacement in transfer.items():
-        if original in laws:
-            laws = laws.replace(original, replacement)
-    # 切分 input，提取每條條文
-    laws = laws.split("「")
-    laws = [law.strip("」").strip() for law in laws if law]
-    contents = ['「' + law.split("民法")[0] for law in laws]
-    clauses = [law.split("民法")[1] for law in laws if len(law.split("民法")) > 1]
-    # 法條部分的合併
-    output = "二、按"
-    for index, content in enumerate(contents):
-        output += content
-        if index != len(contents) - 1:
-            output += "、"
-    output += "民法"
-    for clause in clauses:
-        output += clause + '、'
-    # 在最後補上相應的引用，並更正格式
-    output = output[:-1] + "分別定有明文。查被告因上開侵權行為，致原告受有下列損害，依前揭規定，被告應負損害賠償責任:"
-    return output
-
 def generate_lawsheet(input_data):
     """處理單個生成請求並輸出結果"""
-    from KG_RAG.KG_Generate import split_input, query_simulation
-    reference = query_simulation(input_data)
-    sections = reference.split('二、')
-    reference_fact = sections[0].strip()
-    reference_law = '二、' + sections[1].split('（一）')[0].strip()
-    reference_compensation = ' (一) ' + sections[1].split('（一）')[1].strip()
-    data = split_input(input_data)
-    first_part = generate_fact_statement(data["case_facts"] + '\n' + data["injury_details"], reference_fact)
-    second_part = reference_law
-    third_part = generate_compensate(data["compensation_request"], reference_compensation)
+    from KG_RAG_B.KG_Generate import query_simulation
+    from chunk_RAG.main import retrieval
+    userinput = input("請選擇使用的RAG資料庫(1: KG_RAG, 2: chunk_RAG): ")
+    if userinput == "1":
+        # 使用 KG_RAG
+        references = query_simulation(input_data)
+    elif userinput == "2":
+        # 使用 chunk_RAG
+        references = retrieval(input_data)
+    else:
+        print("請輸入正確的選項(1或2)")
+        return None
+    facts = []
+    laws = []
+    compensations = []
+    data = Tools.split_user_input(input_data)
+    for reference in references:
+        output = Tools.split_user_output(reference)
+        facts.append(output["fact"])
+        laws.append(output["law"])
+        compensations.append(output["compensation"])
+    first_part = generate_fact_statement(data["case_facts"] + '\n' + data["injury_details"], facts)
+    second_part = laws[0]
+    third_part = generate_compensate(input_data, compensations)
+    # print(compensations)
+    # print(first_part + '\n\n' + second_part + '\n\n' + third_part)
     return first_part + '\n\n' + second_part + '\n\n' + third_part 
+    
 
-tmp_prompt = """一、事故發生緣由:
-被告於110年12月13日10時1分許，駕駛車號00-0000號自用小客車，沿臺中市西屯區港隆街由凱旋路往黎明路方向行駛至黎明路岔路口時，因疏於注意減速讓幹道車優先通行，即貿然行駛，致發生與李承祐所騎車號000-0000普通重型機車（下稱系爭機車，李承祐當時係騎系爭機車搭載賴秀雲，沿黎明路由東往西方向行駛）擦撞之車禍事故（下稱系爭車禍事故）。
+tmp_prompt = """一、事故發生緣由：
+被告於民國94年10月10日20時6分許，駕駛車牌號碼3191-XA號自小客車，沿台南縣山上鄉○○村○○○○○道路由東往西方向行駛，於行經明和村明和192之6號前時，原應注意汽車不得逆向行駛，且應注意車前狀況，並減速慢行，作好隨時準備煞車之安全措施，依當時天氣晴朗、路面平坦無缺陷、無障礙物、桅距良好等，並無不能注意之情事，竟仍疏未注意，逆向駛入對向車道，致其上開自小客車車頭與由乙○○所騎乘、後方搭載其妹丙○○，行駛於對向車道之UWL-1855號輕型機車發生對撞，致原告乙○○、丙○○人車倒地。
 
-二、原告受傷情形:
-因本件事故導致賴秀雲受有右肘、右足、右側胸壁挫傷、右足撕裂傷等傷害；李承祐受有腰椎椎間盤突出之傷害。
+二、原告受傷情形：
+原告乙○○因而受有頭部挫傷合併顏面多處擦傷及牙齒斷裂、下腹部挫傷合併恥骨之兩側下分枝斷裂（骨折）、右側卵巢巧克力囊腫破裂致腹膜炎等傷害，丙○○因而受有顱腦損傷、顱內出血、顏面骨骨折等傷害。
 
-三、請求賠償的事實根據:
-原告賴秀雲主張因系爭車禍事故受有上開傷害，而前往臺中榮民總醫院（下稱臺中榮總）就醫花費9,160元，於高堂中醫診所花費4萬4628元，花費蕭永明骨科診所診療費1萬5350元、新奇美診所診療費4,100元。
-並且因系爭車禍事故受傷，支出紗布及藥水衍生損失4,050元，並有發票及收據為證。
-其因系爭車禍事故受傷，受有不能工作之損失總計10週，金額合計6萬2970元，並有臺中榮總診斷證明書、員工薪資單為證。
-並因系爭車禍事故而導致系爭機車損壞，維修之零件金額為1萬8200元，工資金額為1萬800元，零件經計算折舊後，加計工資之維修費用結果為1萬2620元，，有系爭機車維修估價單為證。
-而賴秀雲之眼鏡架因系爭車禍事故損壞，損失4,250元。
-另查賴秀雲為00年00月00日出生，迄至系爭車禍事故發生時之110年12月13日，已年滿71歲，對照其因系爭車禍事故，受有右肘、右足、右側胸壁挫傷、右足撕裂傷等傷害，衡情應有搭車前往就醫之必要其因系爭車禍事故受傷至醫院治療，故一共支出計程車費用2萬1225元。
-賴秀雲更因系爭車禍事故受傷後，受有勞動力減損2萬3622元。
-末查賴秀雲為國小畢業，目前已退休，無收入，系爭車禍事故發生前月薪約2萬6000元，無存款、無汽車及不動產，因系爭車禍事故受有右肘、右足、右側胸壁挫傷、右足撕裂傷等傷害，造成精神痛苦，爰請求精神慰撫金30萬元。
+三、請求賠償的事實根據：
+（一）丙○○部分：
+1. 醫藥費用：共新台幣38,706元。
 
-原告李承祐主張因系爭車禍事故受有上開傷害，前往臺中榮總就診花費醫藥費用9,290元、高堂聯合中醫診所醫藥費用1萬2000元以及蕭永明骨科診所醫藥費用2萬3150元。
-另外李承祐因傷復健需要購買護腰莢1,242元。
-而李承祐因上開傷害而不良於行，需支出就醫之交通費用1萬9755元。
-李承祐並主張系爭車禍事故經其送交臺中市車輛行車事故鑑定委員會、臺中市車輛行車事故鑑定覆議委員會進行鑑定、覆議，支出鑑價費用5,000元，請求被告應給付一半即2,500元，並有鑑價費之統一發票為證。
-李承祐另外主張因受有上開傷害而無法上班，受有薪資損失57萬6000元。
-李承祐因系爭車禍事故經鑑定勞動能力減損12%，其係00年00月00日生，迄至110年12月13日發生車禍時，為45歲，經扣除李承祐前所主張不能工作損失之期間後，至自112年2月起算至李承祐65歲強制退休之年齡止，原告可工作之期間應為18年9月又21日；又李承祐於系爭車禍事故時並無工作，是以最低基本工資作為計算之標準，而依照行政院勞動部公布之110年最低基本工資為每月2萬4000元，則李承祐每月之勞動能力減損之金額應為2,880元，依霍夫曼式計算法扣除中間利息（首期給付不扣除中間利息）核計其金額為新臺幣45萬8897元。
-查李承祐為高職肄業，目前為自由職業，無固定收入，無存款、有汽機車各1部，無不動產，因系爭車禍事故受有腰椎椎間盤突出之傷害，受有精神上痛苦，爰請求精神慰撫金30萬元。
+2. 不能工作之損失：原告因傷至少2個月不能工作，以92年、93年度扣繳憑單給付總額之平均數1個月34,860元計算，共損失69,728元。
+
+3. 精神慰撫金：原告因被告之侵權行為導致顱內出血及顏面骨折，有頭疼、頭暈且記憶力減退之後遺症等現象，均影響生活、工作及女生外貌甚鉅，導致原告精神痛苦不堪，為此爰請求精神賠償300,000元。
+
+（二）乙○○部分:
+1. 醫藥費用：共274,874元。
+
+2. 不能工作之損失：原告因傷無法工作期間達6個月以上，以其92年度綜合所得稅各類所得資料可知其每月工作所得為30,157元，以6個月計，則損失約180,942元。
+
+3. 精神慰撫金：原告因被告之侵權行為而導致下腹部挫傷合併恥骨骨折、卵巢破裂合併內出血等傷害，已切除卵巢百分之50且可能導致終生不孕。而生育對多數女性而言乃視為極為重要之天職，若無法生孕，甚至可能造成婚姻之不幸福及家庭之缺憾，因而使原告極其痛苦，爰請求精神慰撫金2,000,000元。
+
+4. 原告乙○○大學畢業，現在豐年豐和企業股份有限公司上班，月薪約30,000元左右，名下無不動產；原告丙○○為二專畢業，受傷之前的月薪約34,000元左右，名下有汽車1輛，無不動產。
 """
 
 print(generate_lawsheet(tmp_prompt))
-

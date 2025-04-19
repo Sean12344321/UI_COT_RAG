@@ -1,7 +1,7 @@
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from langchain_ollama import OllamaLLM
-from KG_Faiss_Query import query_faiss, get_statutes_for_case, get_simulation_output
+from KG_RAG_B.KG_Faiss_Query import query_faiss, get_statutes_for_case, get_simulation_output
 import re
 # 函數：生成引用的法條
 def generate_legal_references(case_facts, injury_details):
@@ -18,17 +18,15 @@ def generate_legal_references(case_facts, injury_details):
     # return legal_references
 def query_simulation(input_text):
     # 1. 查詢最相近的 "模擬輸入"
+    print("在faiss中查詢5個模擬輸入")
     sim_inputs = query_faiss(input_text, top_k=5)
-
     # 2. 查詢對應的 "模擬輸出"
+    print("在neo4j中找到對應的起訴狀")
     results = []
     for sim_input in sim_inputs:
         sim_outputs = get_simulation_output(sim_input["id"])
-        results.append({
-            "simulation_input": sim_input,
-            "simulation_output": sim_outputs
-        })
-    return results[0]["simulation_output"][0]["text"]
+        results.append(sim_outputs[0]["text"])
+    return results
 
 # 定義提示模板
 prompt_template = PromptTemplate(
@@ -115,4 +113,4 @@ def generate_lawsuit(user_input):
     # })
     return legal_references
 
-# query_simulation(user_input)
+# print(query_simulation(user_input))
