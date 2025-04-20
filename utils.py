@@ -51,8 +51,11 @@ class Tools:
         sections = output.split('二、')
         if len(sections) != 2:
             print("警告: 無法正確識別文本標記。請確保格式為「一、」開頭，然後有「二、」和(一)")
-            return {"fact": "", "law": "", "compensation": ""}
+            return False
         sub_sections = sections[1].split('（一）')
+        if len(sub_sections) != 2:
+            print("警告: 無法正確識別文本標記。請確保格式為「二、」和「（一）」")
+            return False
         reference_fact = sections[0].strip()
         reference_law = '二、' + sub_sections[0].strip()
         reference_compensation = ' (一) ' + sub_sections[1].strip()

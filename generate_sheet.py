@@ -12,8 +12,6 @@ SERVICE_ACCOUNT_FILE = os.getenv("SERVICE_ACCOUNT_FILE")
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 # 試算表 ID 和範圍
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
-RANGE_WRITE_TEMPLATE_OUTPUT = 'Sheet1!B:B' # 寫入gpt-4o-mini 輸出範圍
-# RANGE_WRITE_MODEL_OUTPUT = 'Sheet1!F:F' # 寫入模型輸出範圍
 # 初始化 Google Sheets 客戶端
 creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
 service = build('sheets', 'v4', credentials=creds)
@@ -50,6 +48,6 @@ def write_sheets_single(output, row_index, range_base):
     print(f"Row {row_index + 1} updated: {output}")
 
 # 逐行生成並即時寫入
-for i, item in enumerate(df["模擬輸入內容"].tolist()[:]):
+for i, item in enumerate(df["模擬輸入內容"].tolist()[1:]):
     output = generate_lawsheet(item)  # 生成單個輸出
-    write_sheets_single(output, i+1, "Sheet1!F:F")  # 即時寫入該行
+    write_sheets_single(output, i+2, "Sheet1!D:D")  # 即時寫入該行
