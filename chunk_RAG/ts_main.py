@@ -21,13 +21,13 @@ class LegalRAGSystem:
         load_dotenv()
         self.embedding_model = EmbeddingModel()
         self.es_manager = ElasticsearchManager(
-            host="https://localhost:9200",
+            host="http://localhost:9200",
             username=os.getenv('ELASTIC_USER'),
             password=os.getenv('ELASTIC_PASSWORD')
         )
         self.neo4j_manager = Neo4jManager(
             uri=os.getenv('NEO4J_URI'),
-            user=os.getenv('NEO4J_USER'),
+            user=os.getenv('NEO4J_USERNAME'),
             password=os.getenv('NEO4J_PASSWORD')
         )
         

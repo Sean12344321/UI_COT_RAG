@@ -16,8 +16,7 @@ class RetrievalSystem:
         try:
             # Initialize Elasticsearch
             self.es = Elasticsearch(
-                "https://localhost:9200",
-                http_auth=(os.getenv('ELASTIC_USER'), os.getenv('ELASTIC_PASSWORD')),
+                "http://localhost:9200",
                 verify_certs=False
             )
             self.es_index = 'ts_text_embeddings'
@@ -29,7 +28,7 @@ class RetrievalSystem:
             # Initialize Neo4j
             self.neo4j_driver = GraphDatabase.driver(
                 os.getenv('NEO4J_URI'),
-                auth=(os.getenv('NEO4J_USER'), os.getenv('NEO4J_PASSWORD'))
+                auth=(os.getenv('NEO4J_USERNAME'), os.getenv('NEO4J_PASSWORD'))
             )
             
             # Test Neo4j connection

@@ -18,29 +18,28 @@ def generate_lawsheet(input_data):
     from KG_RAG_B.KG_Generate import query_simulation
     from chunk_RAG.main import retrieval
     start_time = time.time()
-    # userinput = input("請選擇使用的RAG資料庫(1: KG_RAG, 2: chunk_RAG): ")
-    # if userinput == "1":
-    #     # 使用 KG_RAG
-    #     references = query_simulation(input_data)
-    # elif userinput == "2":
-    #     # 使用 chunk_RAG
-    #     references = retrieval(input_data)
-    # else:
-    #     print("請輸入正確的選項(1或2)")
-    #     return None
-    references = query_simulation(input_data)
-    print(references)
+    userinput = input("請選擇使用的RAG資料庫(1: KG_RAG, 2: chunk_RAG): ")
+    if userinput == "1":
+        # 使用 KG_RAG
+        references = query_simulation(input_data)
+    elif userinput == "2":
+        # 使用 chunk_RAG
+        references = retrieval(input_data)
+    else:
+        print("請輸入正確的選項(1或2)")
+        return None
     facts = []
     laws = []
     compensations = []
     data = Tools.split_user_input(input_data)
-    for reference in references:
-        if reference == False:
+    for i, reference in enumerate(references):
+        splited_reference = Tools.split_user_output(reference)
+        if splited_reference == False:
+            print(f"第{i}格式錯誤，不參考這筆資料")
             continue
-        output = Tools.split_user_output(reference)
-        facts.append(output["fact"])
-        laws.append(output["law"])
-        compensations.append(output["compensation"])
+        facts.append(splited_reference["fact"])
+        laws.append(splited_reference["law"])
+        compensations.append(splited_reference["compensation"])
     first_part = generate_fact_statement(data["case_facts"] + '\n' + data["injury_details"], facts)
     second_part = laws[0]
     third_part = generate_compensate(input_data, compensations)

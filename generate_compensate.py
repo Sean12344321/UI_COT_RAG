@@ -65,7 +65,7 @@ user_input = """
  
  綜上所述，原告依據民法第184條第1項前段、第191條之2、第193條第1項及第195條第1項前段之規定，請求被告賠償上述損害，總計317,834元及自起訴狀繕本送達翌日起至清償日止，按年息5%計算之利息。
 """
-reference = """（一）醫療費用：146,363元
+references = ["""（一）醫療費用：146,363元
 1. 原告莊士紘醫療費用：800元
 2. 原告林淑玲醫療費用：145,563元
 
@@ -88,7 +88,7 @@ reference = """（一）醫療費用：146,363元
 2. 原告林淑玲：150,000元
 
 （七）綜上所陳，被告應連帶賠償原告之損害，包含醫療費用146,363元、交通費用6,105元、看護費用66,000元、財物損害454,869元、工作損失77,600元及慰撫金180,000元，總計930,937元。
-"""
+"""]
 compensate_prompt = f"""
 你是一位熟悉法律文書格式的語言模型。請從`輸入`中讀取內容，並以`生成格式`作為開頭，接續撰寫一段描述句，說明該筆費用的原因與金額使用情況。
 ⚠️請特別注意：
@@ -116,6 +116,7 @@ compensate_head_check = f"""
 ===========================
 ⚠️ 注意：只要任何一項為「否」，就必須輸出「reject」。
 不要同時出現 accept 和 reject，只能選一個。
+❗禁止進行推論或自動修正。金額必須逐字完全一致。500250 ≠ 500025，這是不同的金額，即使僅差一位數也視為不一致。
 """
 compensation_sum_prompt = """請參考以下「範例格式」，將給定的各筆損害賠償項目重新整理成總結句，格式須一致："""
 labels = [
@@ -169,8 +170,8 @@ def generate_compensate_summary(input):
     return summary
 
     
-def generate_reference_array(reference):
-    parts = re.split(r'（[一二三四五六七八九十]{1,3}）', reference)[1:]
+def generate_reference_array(references):
+    parts = re.split(r'（[一二三四五六七八九十]{1,3}）', references)[1:]
     results = []
     for i, part in enumerate(parts):
         lines = part.strip().splitlines()
@@ -195,10 +196,10 @@ def generate_reference_array(reference):
     return results
 
 
-def compensate_iteration(user_input, reference):
+def compensate_iteration(user_input, references):
     summary = generate_compensate_summary(user_input)
     compensate_items = check_and_generate_summary_items(summary)
-    reference_array = generate_reference_array(reference)
+    reference_array = generate_reference_array(references)
     result = ""
     for i, item in enumerate(compensate_items):
         output = f"""==============================
@@ -217,14 +218,15 @@ def compensate_iteration(user_input, reference):
             else:
                 input_compensate_head_check = f"段落一:{first_sentence}\n段落二{item}" + compensate_head_check
                 compensate_response = Tools.llm_generate_response(input_compensate_head_check)
+                print(first_sentence)
+                print(item)
+                print("=" * 50)
                 print(compensate_response)
                 print("=" * 50)
                 if "accept" in compensate_response or "Accept" in compensate_response:
                     break
                 else:
                     print("COT檢測錯誤，重新生成")
-                    print(response)
-                    print("=" * 50)
                     retry_count += 1
             if retry_count >= 7:
                 print(f"第{i+1}筆 item 嘗試超過 7 次仍無法通過檢查，跳過處理並重新生成整體 text。\n")
@@ -248,12 +250,13 @@ def compensate_iteration(user_input, reference):
 def generate_compensate(user_input, references):
     # 生成賠償項目
     result = None
+    size = len(references)
     id = 0
     while result == None:#生成錯誤
-        print(references[(id) % 5])
-        result = compensate_iteration(user_input, references[(id) % 5])
+        print("參考資料: ", references[(id) % size])
+        result = compensate_iteration(user_input, references[(id) % size])
         id += 1
     return result
 
 if __name__ == "__main__":
-    generate_compensate(user_input, reference)
+    generate_compensate(user_input, references)

@@ -48,6 +48,6 @@ def write_sheets_single(output, row_index, range_base):
     print(f"Row {row_index + 1} updated: {output}")
 
 # 逐行生成並即時寫入
-for i, item in enumerate(df["模擬輸入內容"].tolist()[1:]):
+for i, item in enumerate(df["模擬輸入內容"].tolist()[:]):
     output = generate_lawsheet(item)  # 生成單個輸出
-    write_sheets_single(output, i+2, "Sheet1!D:D")  # 即時寫入該行
+    write_sheets_single(output, i+1, "Sheet1!E:E")  # 即時寫入該行
