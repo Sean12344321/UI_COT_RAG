@@ -9,3 +9,4 @@ fact_index_hnsw.faiss
 fact_metadata_hnsw.npy
 elasticsearch-9.0.0/
 elasticsearch-*.tar.gz
+elasticsearch-9.0.0/
