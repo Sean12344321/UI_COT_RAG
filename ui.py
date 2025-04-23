@@ -68,18 +68,19 @@ def generate_lawsheet(input_data, rag_option="1"):
 
 def export_pdf(content: str):
     try:
-        font_path = "/home/chen/KG_RAG/NotoSansCJK-Regular.ttc"
+        font_path = "/home/chen/rag_cot/NotoSansCJKtc-Regular.ttf"
         pdf = FPDF()
         pdf.add_page()
         pdf.add_font("NotoSans", fname=font_path, uni=True)
         pdf.set_font("NotoSans", size=12)
         for line in content.split("\n"):
-            pdf.multi_cell(0, 10, line)
+            pdf.multi_cell(w=0, h=10, txt=line, align="L")
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
         pdf.output(temp_file.name)
         return temp_file.name
     except Exception as e:
-        return f"無法生成 PDF: {e}"
+        print(f"⚠️ PDF 生成失敗：{e}")
+        return None  # 回傳 None，Gradio 可以正確處理
 
 def update_history_dropdown():
     return gr.update(choices=[f"記錄 {i+1}" for i in range(len(history))])

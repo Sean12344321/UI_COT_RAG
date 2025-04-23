@@ -1,8 +1,11 @@
 .env
 __pycache__/
 venv/
-.chainlit
+.venv/
+.chainlit/
 service_account.json
 test.py
 fact_index_hnsw.faiss
 fact_metadata_hnsw.npy
+elasticsearch-9.0.0/
+elasticsearch-*.tar.gz

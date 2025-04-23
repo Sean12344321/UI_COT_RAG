@@ -1,0 +1,17 @@
+#unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git
+python-dotenv
+ollama
+neo4j
+python-dotenv
+faiss-cpu
+sentence_transformers
+langchain_ollama
+langchain-core
+langchain-community
+langchain
+pandas
+google-api-python-client
+chainlit
+groq
+datasets
+bitsandbytes

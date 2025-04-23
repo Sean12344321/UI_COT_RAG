@@ -16,7 +16,7 @@ class RetrievalSystem:
         try:
             # Initialize Elasticsearch
             self.es = Elasticsearch(
-                "http://localhost:9200",
+                "http://localhost:9201",
                 verify_certs=False
             )
             self.es_index = 'ts_text_embeddings'

@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "rag-cot"
+version = "0.1.0"
+description = ""
+authors = ["eros28095821 <eros28095821@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+elasticsearch = "7.17.0"
+pandas = "^2.2.3"
+ollama = "^0.4.8"
+langchain = "^0.3.23"
+langchain-ollama = "^0.3.2"
+neo4j = "^5.28.1"
+sentence-transformers = "^4.1.0"
+faiss-cpu = "^1.10.0"
+dotenv = "^0.9.9"
+exception = "^0.1.0"
+python-docx = "^1.1.2"
+openpyxl = "^3.1.5"
+fpdf = "^1.7.2"
+gradio = "<4.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
