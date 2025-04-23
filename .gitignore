@@ -1,12 +1,37 @@
-.env
+# Python
 __pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+
+# Virtual environments
 venv/
 .venv/
+
+# Chainlit 相關
 .chainlit/
+
+# 安全性憑證
 service_account.json
+
+# 開發測試檔
 test.py
-fact_index_hnsw.faiss
-fact_metadata_hnsw.npy
-elasticsearch-9.0.0/
-elasticsearch-*.tar.gz
-elasticsearch-9.0.0/
+
+# FAISS index
+*.faiss
+*.npy
+
+# Elasticsearch
+elasticsearch-*/
+*.tar.gz
+
+# IDE / 編輯器相關
+.vscode/
+.idea/
+
+# Jupyter 雜物
+.ipynb_checkpoints/
+
+# 系統檔
+.DS_Store
+Thumbs.db
