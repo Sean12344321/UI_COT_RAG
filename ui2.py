@@ -21,7 +21,7 @@ os.chdir(os.path.dirname(__file__))
 sys.path.append(os.path.join(os.path.dirname(__file__), "KG_RAG_B"))
 sys.path.append(os.path.join(os.path.dirname(__file__), "chunk_RAG"))
 
-from KG_RAG_B.KG_Generate import query_simulation
+from KG_RAG_B.KG_Faiss_Query_3068 import query_simulation
 from chunk_RAG.main import retrieval
 
 # 載入資料
