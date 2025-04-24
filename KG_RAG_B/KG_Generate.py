@@ -1,88 +1,136 @@
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from langchain_ollama import OllamaLLM
-from KG_RAG_B.KG_Faiss_Query import query_faiss, get_statutes_for_case, get_simulation_output
+from define_case_type import get_case_type
+from KG_Faiss_Query_3068 import query_faiss
+from Neo4j_Query import get_statude_case
 import re
-# 函數：生成引用的法條
-def generate_legal_references(case_facts, injury_details):
-    input_text = f"{case_facts} {injury_details}"
-    similar_inputs = query_faiss(input_text, top_k=5)
-    statutes_set = set()
-    for fact in similar_inputs:
-        fact_id = fact["case_id"]
-        statutes_info = get_statutes_for_case(fact_id)
-        for info in statutes_info:
-            statutes_set.update(info["statutes"])
+import time
+s="""
+一、事故發生緣由:
+被告甲○○係民國00年0月00日生，為12歲以上未滿18歲之人。甲○○於112年6月23日上午10時3分許，駕駛微型電動二輪車（下稱A車），沿臺南市永康區富強路1段由南往北方向行駛，行經富強路1段350號前時，本應注意慢車不得侵入快車道行駛，而依當時狀況，並無不能注意之情事，竟疏未注意而行駛內側快車道，適有原告駕駛車牌號碼000-000號普通輕型機車（下稱B車），於車道中停等，欲由東往西跨越車道，未看清來往車輛，致二車發生碰撞；又甲○○於本件車禍事故發生時之112年6月23日，已年滿14歲，為未滿18歲之限制行為能力人，且有識別能力，應由其法定代理人即被告乙○○與甲○○負連帶損害賠償責任。
 
-    # legal_references = "\n".join(sorted(statutes_set))
-    # return legal_references
-def query_simulation(input_text):
-    # 1. 查詢最相近的 "模擬輸入"
-    print("在faiss中查詢5個模擬輸入")
-    sim_inputs = query_faiss(input_text, top_k=5)
-    # 2. 查詢對應的 "模擬輸出"
-    print("在neo4j中找到對應的起訴狀")
-    results = []
-    for sim_input in sim_inputs:
-        sim_outputs = get_simulation_output(sim_input["id"])
-        results.append(sim_outputs[0]["text"])
-    return results
+二、原告受傷情形:
+此次車禍造成原告因而受有雙下肢大片撕脫傷、骨盆骨折等傷害。
 
-# 定義提示模板
-prompt_template = PromptTemplate(
-    input_variables=["case_facts", "injury_details", "compensation_request", "legal_references"],
+三、請求賠償的事實根據:
+（一）醫療費用
+原告主張其因本件車禍事故受傷，就醫急診、住院及門診治療期間，共支出醫療費用2萬3,877元，並有奇美醫院、柳營奇美醫院診斷證明書及電子收據為證。
+
+（二）看護費用
+按奇美醫院診斷證明書記載原告需專人照顧8周，因此原告由於本件車禍事故受傷，需專人照顧，於112年6月25日至112年7月8日之上半日，委請慈惠聘雇照顧服務員，支出1萬8,900元，於112年7月26日下半日至112年8月2日，委請群富旺看護中心看護，再支出1萬1,550元，並有慈惠聘雇照顧服務員費用單、群富旺看護中心看護費用收據聯為證。除此之外，原告在112年7月9日下半日至112年7月25日上半日、112年8月3日至112年9月7日，均由親屬提供看護，費用分別為2萬3,800元、7萬8,400元。
+
+（三）增加生活上必要費用
+原告因本件車禍事故受傷，購買各式醫療耗材，支出2,901元，有免用統一發票收據、估價單、統一發票、電子發票證明聯等為證。
+
+（四）工作損失
+原告於本件車禍事故發生前，從事家庭代工工作，每月收入以最低基本工資2萬6,400元計算，因本件車禍事故受傷，於112年6月23日至113年6月24日，共1年又2日不能工作，並以1年計，請求31萬6,800元。
+
+（五）精神慰撫金
+原告為國中畢業，於本件車禍事故發生前即已退休，每月領取勞保退休金1萬2,000元，無存款及負債，查原告因本件車禍事故，受有雙下肢大片撕脫傷、骨盆骨折等傷勢，經急診、住院接受雙下肢原位植皮重建手術，及多次門診治療，且原告於受傷治療及休養期間，應對於其行動、生活均造成諸多不便，原告精神上因此受有相當痛苦，爰請求精神慰撫金20萬元，以資慰藉。
+"""
+fact_template = PromptTemplate(
+    input_variables=["case_facts"],
     template="""
-你是一個台灣原告律師，你要撰寫一份車禍起訴狀，請根據下列格式進行輸出，並確保每個段落內容完整：
-（一）事實概述：完整描述事故經過，事件結果及要求賠償盡量越詳細越好
-（二）法律依據：先對每一條我給你的引用法條做判斷，如過確定在這起案件中要引用，列出所有相關法律條文，並對每一條文做出詳細解釋與應用。
-  模板：
-  - 民法第xxx條第x項：「...法律條文...」。
-    - 案件中的應用：本條適用於 [事實情節]，因為 [具體行為] 屬於 [法條描述的範疇]，因此 [解釋為何負責賠償]。
-（三）損害項目：列出所有損害項目的金額，並說明對應事實。
+你是一個台灣原告律師，你要撰寫一份車禍起訴狀，但你只需要根據下列格式進行輸出，並確保每個段落內容完整：
+你只需要撰寫這份起訴狀中的事實概述部分
+注意要點：完整描述事故經過，事件結果盡量越詳細越好，要使用"緣被告"做開頭，並且在這段中都要以"原告""被告"作人物代稱，如果我給你的案件事實中沒有出現原告或被告的姓名，則請直接使用"原告""被告"作為代稱，請絕對不要自己憑空杜撰被告的姓名
+備註:請絕對不要寫出任何賠償相關的資訊
+### 案件事實：
+{case_facts}
+"""
+)
+legal_template = PromptTemplate(
+    input_variables=["case_facts", "legal_references"],
+    template="""
+你是一個台灣原告律師，你要撰寫一份車禍起訴狀，但你只需要根據下列格式進行輸出，並確保每個段落內容完整：
+  你需要從我給你的案件事實還有我給你的相似案件中的引用法條部分，來寫出這份起訴書需要的引用法條
+  模板:按「民法第A條條文」、「民法第B條條文」、...、「民法第N條條文」民法第A條、民法第B條、...、民法第N條分別定有明文。查被告因上開侵權行為，致原告受有下列損害，依前揭規定，被告應負損害賠償責任：
+  雖然我給你的模板格式中有提到"被告應負損害賠償責任"，但請你在輸出的時候不要在這段後面加上任何的賠償資訊
+  以下是使用此模板的範例，其中引用的法條僅供參考，輸出的時候要記得我給你的只是範例，如果其中有提到部分的案件內容(例如人名)，請一定要無視掉。:
+  {legal_references}
+  ### 案件事實，撰寫時請一定要以這裡的事實為主：
+  {case_facts}
+"""
+)
+comp_promt=PromptTemplate(
+    input_variables=["injury_details", "compensation_request"],
+    template="""
+你是一個台灣原告律師，你要幫助原告整理賠償資訊，你只需要根據下列格式進行輸出，並確保每個段落內容完整：
+要確保完全照著模板的格式輸出。
+損害項目：列出所有損害項目的金額，並說明對應事實。
   模板：
     損害項目名稱： [損害項目描述]
     金額： [金額數字] 元
     事實根據： [描述此損害項目的原因和依據]
-（四）總賠償金額：需要將每一項目的金額列出來並總結所有損害項目，計算總額，並簡述賠償請求的依據。
+    備註:如果有多名原告，需要針對每一位原告列出損害項目
+    範例:
+    原告A部分:
+    損害項目名稱1：...
+    金額:..
+    事實根據：...
+    損害項目名稱2：...
+    金額:..
+    事實根據：...
+    原告B分:
+    損害項目名稱1：...
+    金額:..
+    事實根據：...
+    損害項目名稱2：...
+    金額:..
+    事實根據：...
+總賠償金額：需要將每一項目的金額列出來並總結所有損害項目，計算總額，並簡述賠償請求的依據。
   模板:
     損害項目總覽：
     總賠償金額： [總金額] 元
     賠償依據：
     依據 [法律條文] 規定，本案中 [被告行為] 對原告造成 [描述損害]，被告應負賠償責任。總賠償金額為 [總金額] 元。
-### 案件事實：
-{case_facts}
-### 受傷情形：
+ ### 受傷情形：
 {injury_details}
-### 引用法條：
-{legal_references}
 ### 賠償請求：
 {compensation_request}
+備註:請盡量不要使用#字號
 """
 )
-user_input="""一、事故發生緣由:
- 被告於民國000年0月00日下午5時許，駕駛車牌號碼0000-00號自用小客車（下稱A車），自基隆市中正區碧砂漁港駛出欲右轉往中正路方向行駛之際，於該址路口（下稱系爭地點）本應注意行駛在閃紅燈之支線道車應暫停讓幹線道車先行，以避免危險或交通事故之發生，而依當時天候及路況，並無不能注意之情事，竟疏未注意上情而貿然前行，此時原告甲父騎乘車牌號碼000-000號普通重型機車（下稱B車）附載原告甲及甲母行駛至系爭地點，雙方因而發生碰撞（下稱系爭事故），原告甲、甲父、甲母因此分別受有身體傷害及財物損失。
- 
- 二、原告受傷情形:
- 原告甲父因系爭事故受有脾臟重度撕裂傷合併腹內出血及休克、左側第6至第9肋骨骨折、左小腿及左腳踝大面積傷口、左側肺挫傷併少量血胸等傷害。
- 原告甲母因系爭事故受有四肢及臉部多處挫傷及擦傷。
- 原告甲因系爭事故受有左膝挫傷、擦傷及左手第五掌骨閉鎖性骨折之傷害。
- 
- 三、請求賠償的事實根據:
-原告甲父部分：
- 1.醫療費用：原告甲父因系爭事故受有脾臟重度撕裂傷合併腹內出血及休克、左側第6至第9肋骨骨折、左小腿及左腳踝大面積傷口、左側肺挫傷併少量血胸等傷害，為此赴衛生福利部基隆醫院（下稱部立基隆醫院）、長庚財團法人基隆長庚紀念醫院（下稱基隆長庚醫院）就醫，支出醫療費用合計5萬3,715元。
- 2.看護費用：原告甲父因受有前揭傷害，自110年2月16日起至110年3月3日在基隆長庚醫院住院治療並接受腹腔鏡血塊引流手術，住院期間需專人全日照顧，術後則因脾臟重度撕裂傷，需休養1個月；肋骨骨折部分則需休養3個月，而有接受專人照顧3個月之需求。故原告甲父主張住院期間以每日看護新臺幣2,500元計算，休養3個月部分則以半日看護費用1,250元計算，合計得請求看護費用為15萬2,500元。
- 3.交通費用：原告甲父因就醫需求，於110年2月16日曾自費搭乘救護車前往急診，其後並多次搭乘計程車往返住家及部立基隆醫院及基隆長庚醫院，合計支出7,215元，惟此處僅以965元為度，請求被告賠償其中965元。
- 4.工作收入損失：原告甲父於系爭事故發生時在生達化學製藥股份有限公司任職，於事發前1年（即110年度）之全年薪資為134萬0,292元，折算日薪為3,723元，又原告甲父因受前揭傷害而有3個月不能工作，於休養期間之工作收入損失合計為33萬5,070元。
- 5.精神慰撫金：原告因系爭事故受有脾臟重度撕裂傷，導致腹內出血、休克進入加護病房治療，住院期間並先後接受血管栓塞止血及腹內血塊引流手術，且出院後尚需休養3個月，迄今仍覺身體機能無法回復、不時疼痛，因此身心俱疲，所受打擊非屬一般，故請求被告賠償精神慰撫金80萬元。
- 6.B車受損修理費用及甲父所有之手機、眼鏡、手錶、衣服、安全帽價值損失：原告甲父因系爭事故需支出B車維修費用7,977元，並因系爭事故造成身上攜帶之手機、眼鏡、手錶；身著之安全帽及衣服破損，受有價值相當於6,250元之損害，合計受有1萬4,227元之損失。
- 
- 原告甲母部分：
- 精神慰撫金：原告甲母因系爭事故受有四肢及臉部多處挫傷及擦傷，因此破相，且傷口難免留疤而永久影響外觀。職故，原告甲母確因系爭事故受有精神上痛苦，爰請求被告賠償精神慰撫金5萬元。
- 
- 原告甲部分：
- 精神慰撫金：原告甲於系爭事故發生時年紀尚輕，因系爭事故受有左膝挫傷、擦傷及左手第五掌骨閉鎖性骨折之傷害，經多次回診治療，左手掌需以外物固定而無法彎曲，生活學業受有很大影響，且有永久影響左手握力與日常生活功能之虞。職故，原告確因系爭事故受有精神上痛苦，爰請求被告賠償精神慰撫金15萬元。
+llm = OllamaLLM(model="kenneth85/llama-3-taiwan:8b-instruct-dpo-q8_0",temperature=0.1,keep_alive=0)
+def generate_fact(input_data):
+    # 創建 LLMChain
+    llm_chain = LLMChain(llm=llm, prompt=fact_template)
+    # 傳入數據生成起訴書
+    lawsuit_draft = llm_chain.run({
+        "case_facts": input_data,
+    })
+    return lawsuit_draft
 
-"""
+def generate_legal(input_data, case_type):
+     # 創建 LLMChain
+    llm_chain = LLMChain(llm=llm, prompt=legal_template)
+    # 查詢最相似的案件
+    closest_cases = query_faiss(input_data, case_type,1)
+    ids=[i['id'] for i in closest_cases]
+    legal_references = []
+    for i in ids:
+        # 查詢法條資訊
+        legal_reference = get_statude_case(i)
+        if legal_reference:
+            legal_references.append(legal_reference)
+    # 提取最相似案件的法條資訊
+    # 傳入數據生成起訴書
+    lawsuit_draft = llm_chain.run({
+        "case_facts": input_data,
+        "legal_references": legal_references
+    })
+    return lawsuit_draft
+
+def generate_comp(user_input):
+    input_data=split_input(user_input)
+    llm_chain = LLMChain(llm=llm, prompt=comp_promt)
+    # 傳入數據生成起訴書
+    lawsuit_draft = llm_chain.run({
+        "injury_details": input_data["injury_details"],
+        "compensation_request": input_data["compensation_request"]
+    })
+    return lawsuit_draft
 
 def split_input(user_input):
     sections = re.split(r"(一、|二、|三、)", user_input)
@@ -94,23 +142,25 @@ def split_input(user_input):
     return input_dict
 
 def generate_lawsuit(user_input):
-    input_data=split_input(user_input)
-    legal_references = generate_legal_references(input_data["case_facts"], input_data["injury_details"])
-    input_data["legal_references"] = legal_references
-    llm = OllamaLLM(model="kenneth85/llama-3-taiwan:8b-instruct",
-                    temperature=0.1,
-                    keep_alive=0,
-                    num_predict=50000
-                    )
-    # 創建 LLMChain
-    llm_chain = LLMChain(llm=llm, prompt=prompt_template)
-    # 傳入數據生成起訴書
-    # lawsuit_draft = llm_chain.run({
-    #     "case_facts": input_data["case_facts"],
-    #     "injury_details": input_data["injury_details"],
-    #     "legal_references": legal_references,
-    #     "compensation_request": input_data["compensation_request"]
-    # })
-    return legal_references
+    start_time = time.time()  # 記錄開始時間
+    input_dict = split_input(user_input)
+    case_type=get_case_type(user_input)
+    case_facts = input_dict["case_facts"]
+    fact=generate_fact(case_facts)
+    #print(fact)
+    #print()
+    legal=generate_legal(input_dict["case_facts"], case_type)
+    #print(legal)
+    #print()
+    comp=generate_comp(user_input)
+    end_time = time.time()  # 記錄結束時間
+    execution_time = end_time - start_time  # 計算執行時間
+    print(f"執行時間: {execution_time} seconds")
+    return fact+"\n\n"+legal+"\n\n"+comp
 
-# print(query_simulation(user_input))
+#start_time = time.time()  # 記錄開始時間
+#l=generate_lawsuit(s)
+#print(l)
+#end_time = time.time()  # 記錄結束時間
+#execution_time = end_time - start_time  # 計算執行時間
+#print(f"執行時間: {execution_time} seconds")

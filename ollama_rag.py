@@ -4,6 +4,8 @@ from ollama import chat, ChatResponse
 from generate_compensate import generate_compensate
 from generate_truth import generate_fact_statement, generate_simple_fact_statement
 from utils import Tools
+from KG_RAG_B.KG_Faiss_Query_3068 import query_simulation
+from chunk_RAG.main import retrieval
 os.chdir(os.path.dirname(__file__))
 # 將 KG_RAG 目錄添加到 sys.path
 sys.path.append(os.path.join(os.path.dirname(__file__), "KG_RAG_B"))
@@ -15,8 +17,6 @@ template_output = df2["gpt-4o-mini-2024-07-18\n3000筆"].tolist()
 
 def generate_lawsheet(input_data):
     """處理單個生成請求並輸出結果"""
-    from KG_RAG_B.KG_Generate import query_simulation
-    from chunk_RAG.main import retrieval
     start_time = time.time()
     userinput = input("請選擇使用的RAG資料庫(1: KG_RAG, 2: chunk_RAG): ")
     if userinput == "1":
