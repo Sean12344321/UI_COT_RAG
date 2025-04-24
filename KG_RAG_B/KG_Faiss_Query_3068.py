@@ -126,7 +126,7 @@ def query_simulation(input_text):
     print("在neo4j中找到對應的起訴狀")
     results = []
     for sim_input in sim_inputs:
-        sim_outputs = get_simoutput_case(sim_input["id"])
-        results.append(sim_outputs[0]["text"])
+        sim_outputs = get_simoutput_case(int(sim_input["id"]))
+        results.append(sim_outputs)
     return results
 
