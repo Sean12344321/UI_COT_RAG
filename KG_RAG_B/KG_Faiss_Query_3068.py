@@ -119,14 +119,17 @@ def query_faiss(input_text: str, case_type: str, top_k: int = 5) -> List[Dict[st
 
 def query_simulation(input_text):
     # 1. 查詢最相近的 "模擬輸入"
-    print("在faiss中查詢5個模擬輸入")
     case_type=get_case_type(input_text)
+    print(f"案件類型: {case_type}")
+    print("在faiss中查詢5個模擬輸入")
     sim_inputs = query_faiss(input_text, case_type, top_k=5)
     # 2. 查詢對應的 "模擬輸出"
     print("在neo4j中找到對應的起訴狀")
     results = []
     for sim_input in sim_inputs:
-        sim_outputs = get_simoutput_case(int(sim_input["id"]))
-        results.append(sim_outputs)
+        results.append({"case_id": sim_input["id"],
+                        "case_text": get_simoutput_case(int(sim_input["id"])),
+        })
     return results
+
 

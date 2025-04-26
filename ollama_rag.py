@@ -1,15 +1,14 @@
 import pandas as pd
 import os, sys, time
-from ollama import chat, ChatResponse
 from generate_compensate import generate_compensate
 from generate_truth import generate_fact_statement, generate_simple_fact_statement
 from utils import Tools
-from KG_RAG_B.KG_Faiss_Query_3068 import query_simulation
-from chunk_RAG.main import retrieval
 os.chdir(os.path.dirname(__file__))
 # 將 KG_RAG 目錄添加到 sys.path
 sys.path.append(os.path.join(os.path.dirname(__file__), "KG_RAG_B"))
 sys.path.append(os.path.join(os.path.dirname(__file__), "chunk_RAG"))
+from KG_RAG_B.KG_Faiss_Query_3068 import query_simulation
+from chunk_RAG.ts_main import retrieval
 df = pd.read_csv('dataset.csv')
 df2 = pd.read_csv('dataset(no_law).csv')
 inputs = df["模擬輸入內容"].tolist()[:-2]
@@ -17,7 +16,6 @@ template_output = df2["gpt-4o-mini-2024-07-18\n3000筆"].tolist()
 
 def generate_lawsheet(input_data):
     """處理單個生成請求並輸出結果"""
-    start_time = time.time()
     userinput = input("請選擇使用的RAG資料庫(1: KG_RAG, 2: chunk_RAG): ")
     if userinput == "1":
         # 使用 KG_RAG
@@ -29,52 +27,56 @@ def generate_lawsheet(input_data):
         print("請輸入正確的選項(1或2)")
         return None
     facts = []
-    laws = []
+    case_ids = []
     compensations = []
     data = Tools.split_user_input(input_data)
     for i, reference in enumerate(references):
-        splited_reference = Tools.split_user_output(reference)
+        splited_reference = Tools.split_user_output(reference["case_text"])
+        case_ids.append(reference["case_id"])
         if splited_reference == False:
             print(f"第{i}格式錯誤，不參考這筆資料")
             continue
         facts.append(splited_reference["fact"])
-        laws.append(splited_reference["law"])
         compensations.append(splited_reference["compensation"])
     first_part = generate_fact_statement(data["case_facts"] + '\n' + data["injury_details"], facts)
-    second_part = laws[0]
+    print(first_part)
+    print("第一段生成完成")
+    print("=" * 50)
+    second_part = Tools.generate_laws(case_ids, 2)
+    print(second_part)
+    print("第二段生成完成")
+    print("=" * 50)
     third_part = generate_compensate(input_data, compensations)
-    # print(compensations)
-    print(first_part + '\n\n' + second_part + '\n\n' + third_part)
+    return first_part + '\n\n' + second_part + '\n\n' + third_part 
+    
+
+tmp_prompt = """一、事故發生緣由:
+ 被告於民國000年0月0日下午18時14分許，駕駛車號000-0000自用小客車，沿新北市淡水區淡金路往臺北方向行駛，行至該路段欲右轉進入中正東路一段時，應注意轉彎車應禮讓直行車先行，竟未注意即貿然右轉，當時訴外人葉銘倫正騎乘車號000-0000普通重型機車搭載原告，同向行駛在被告車輛之右側，因閃避不及遭被告所駕之自用小客車碰撞而人車倒地。另外，被告之行為涉及過失傷害，經臺灣士林地方法院112年度交易字第44號刑事判處拘役50日，上訴後，經鈞院刑事庭112年度交上易字第199號判決上訴駁回確定，可證明被告確實有過失。
+ 
+ 二、原告受傷情形:
+ 原告因本件車禍事故受有左肩、左前臂、左手擦傷、左踝擦挫傷等傷害。
+ 
+ 三、請求賠償的事實根據:
+按民法第184條第1項前段、第191條之2本文、第193條第1項、第195條第1項前段，請求下列損害
+ 原告主張因本件車禍受傷至淡水馬偕紀念醫院、祐民聯合診所就醫，支出醫療費用5萬4,741元，並且在111年9月27日購買藥品支出1,890元，以上有淡水馬偕紀念醫院醫療費用收據、祐民聯合診所醫療費用收據可以證明，而後至112年仍需要雷射除疤、中醫調養門診、來往醫院交通費用、自費醫材等預估醫療費用18萬元，並且有113年3月29日美仕媞時尚醫美診所1萬8,444元醫療收據可以證明原告後續預估的醫療費用有後續治療之必要及實際支出。
+ 
+ 原告主張因受到系爭傷害，馬偕紀念醫院乙種診斷證明書上記載「患者甲○○於本院民國111年8月7日急診診1次…因患者甲○○左側足踝慢性傷口遲未癒合，為進一步治療，於本院自民國111年9月7日入院，於民國111年9月8日接受清創及人工真皮植皮手術，術後使用負壓照護系統。需專人照護一個月。」，因此原告因本件事故自111年9月7日至111年9月13日共7日住院治療，出院後需專人照護一個月，於111年9月13日至111年10月13日期間，以一般醫院全日看護之收費行情為2,000元以上計算，一共支出看護費用7萬4,000元（即每日2,000元×37日＝7萬4,000元）。
+ 
+ 原告主張本件事故發生前原告受僱康舒科技股份有限公司，每個月月薪7萬2,800元，因本件車禍受傷導致3個月期間無法工作，因此請求受有3個月不能工作之薪資損害大約共42萬元，有診斷證明書、110年度綜合所得稅各類所得資料清單、健保櫃檯個人投保紀錄等可以作為證據。
+ 
+ 原告主張因本件事故，衣褲毀損支出購置費用1,580元、因鞋子毀損支出購置費用1,393元；其機車因毀損而支出修理費用合計2萬0,900元。
+ 
+ 原告因本件事故受有左肩、左前臂、左手擦傷、左踝擦挫傷等傷害，並且經過持續回診之情形，精神上受有相當痛苦；而原告為大學畢業，原任職於康舒科技股份有限公司，月薪7萬2,800元，請求鈞院衡量原告所受傷勢、本件事故發生原因及兩造財產資力等一切情狀，命被告支付精神慰撫金99萬元，以填補原告所受非財產上損害。
+"""
+
+if __name__ == "__main__":
+    start_time = time.time()
+    print(generate_lawsheet(tmp_prompt))
     print("=" * 50)
     end_time = time.time()
     elapsed_time = end_time - start_time
-    
     hours = int(elapsed_time // 3600)
     minutes = int((elapsed_time % 3600) // 60)
     seconds = int(elapsed_time % 60)
     
     print(f"\n執行時間: {hours}h {minutes}m {seconds}s")
-    return first_part + '\n\n' + second_part + '\n\n' + third_part 
-    
-
-tmp_prompt = """一、事故發生緣由:
-被告賴俊諺於民國110年12月4日上午10時27分許，無照駕駛被告賴惠敏所有車牌號碼000-0000號自用小貨車，沿桃園市新屋區中山東路1段往新屋方向行駛，行經同市區○○○○0段00號前時，本應注意車前狀況，並隨時採取必要之安全措施，而依當時天候晴、日間自然光線、柏油路面乾燥、無缺陷、無障礙物且視距良好，並無不能注意之情事，竟疏未注意前方車輛停等紅燈，不慎自後追撞前方由原告羅靖崴所駕駛並搭載原告邱品妍之車牌號碼000-0000號自用小客車(下稱系爭車輛)。
-另查被告賴惠敏將其所有之車牌號碼000-0000號自用小貨車供未領有駕駛執照之被告賴俊諺駕駛，被告賴俊諺並於上開時地駕駛車牌號碼000-0000號自用小貨車，未注意車前狀況，自後追撞系爭車輛，而使原告2人受有傷害，因此被告兩人應負共同侵權行為之連帶損害賠償責任。
-
-二、原告受傷情形:
-原告羅靖崴因本件事故而受有頭部外傷併輕微腦震盪之傷害。
-原告邱品妍則因本件車禍受有頭暈及頸部扭傷等傷害。
-
-三、請求賠償的事實根據:
-按民法第184條第1項前段、第185條第1項、第191條之2本文、第193條第1項、第195條第1項前段，請求下列損害
-查原告羅靖崴因系爭車禍受有前揭傷害而前往聯新醫院就診，有聯新醫院診斷證明書可作為證據，其因而支出醫療費用2,443元、交通費1,235元。
-原告羅靖崴因本件事故受傷，需在家休養16日而無法工作，又原告羅靖崴每月工資應為37,778元，又依聯新醫院診斷證明書分別於110年12月4日及111年1月10日建議原告羅靖崴應休養3日及兩週，是原告羅靖崴應有17日不能工作，但原告羅靖崴僅請求16日工資損失，因此請求不能工作之損失20,148元
-原告羅靖崴因本件車禍而受有頭部外傷併輕微腦震盪之傷害，影響日常生活甚鉅，於精神上可能承受之無形痛苦，故請求被告賠償10,000元精神慰撫金。
-
-原告邱品妍因系爭車禍受有前揭傷害同樣前往聯新醫院醫治，有聯新醫院診斷證明書作為證據，其因而支出醫療費用57,550元、交通費22,195元。
-另外原告邱品妍因本件事故受傷，需在家休養1月又28日而無法工作，又原告邱品妍每月工資為34,535元，又依聯新醫院診斷證明書分別於110年12月4日、111年12月6日、 110年12月17日、110年12月24日、111年1月10日持續建議休養1週至1個月，總計1個月又28日，其不能工作之損失應為66,768元。
-另查系爭車輛，因被告之過失行為，受有交易上價值貶損33,000元及支出鑑定費3,000元，因此原告邱品妍向被告請求賠償之本件車輛交易價值減損及鑑定費共計36,000元。
-原告邱品妍因本件車禍受有頭暈及頸部扭傷等傷害，影響其工作、生活之行動，於精神上造成無形痛苦，故請求被告連帶賠償60,000元精神慰撫金。
-"""
-
-print(generate_lawsheet(tmp_prompt))

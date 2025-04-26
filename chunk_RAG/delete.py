@@ -2,10 +2,89 @@
 import sys
 import time
 import os
+import re
 from typing import List, Dict
 import traceback
 from dotenv import load_dotenv
 from ts_retrieval_system import RetrievalSystem
+
+def extract_calculate_tags(text: str) -> Dict[str, float]:
+    """
+    Extract and calculate the sum of values inside <calculate> </calculate> tags.
+    
+    Args:
+        text: Text containing <calculate> </calculate> tags
+        
+    Returns:
+        Dictionary mapping plaintiff identifiers to their total compensation amounts
+    """
+    print(f"\n start of calculate func")
+    # Find all <calculate> </calculate> tags
+    pattern = r'<calculate>(.*?)</calculate>'
+    matches = re.findall(pattern, text)
+    print(f"找到 {len(matches)} 個標籤內容")
+
+    sums = {}
+    default_count = 0
+    
+    for match in matches:
+        # First try to find "原告X" pattern
+        plaintiff_pattern = r'原告(\w+)'
+        plaintiff_match = re.search(plaintiff_pattern, match)
+        
+        plaintiff_id = "default"
+        
+        if plaintiff_match:
+            # Found "原告X" format
+            plaintiff_id = plaintiff_match.group(1)
+        else:
+            # Try to find a name at the beginning (without "原告" prefix)
+            name_pattern = r'^(\w+)'
+            name_match = re.search(name_pattern, match.strip())
+            
+            if name_match and not name_match.group(1).isdigit():
+                plaintiff_id = name_match.group(1)
+            else:
+                # This is a default tag
+                if "default" in sums:
+                    # We already have a default, create a numbered default
+                    default_count += 1
+                    plaintiff_id = f"原告{default_count}"
+                # else use "default" as is
+        
+        # Extract and sum all numbers
+        number_pattern = r'\d+'
+        numbers = re.findall(number_pattern, match)
+        
+        if numbers:
+            try:
+                total = sum(float(num) for num in numbers)
+                
+                # Handle case where this plaintiff ID already exists
+                if plaintiff_id in sums:
+                    default_count += 1
+                    plaintiff_id = f"原告{default_count}"
+                
+                sums[plaintiff_id] = total
+                print(f"計算 {plaintiff_id}: {total}")
+            except ValueError:
+                print(f"警告: 無法計算標籤內的金額: {match}")
+    
+    # Handle case where all tags are defaults - rename them to 原告1, 原告2, etc.
+    if "default" in sums and len(matches) > 1:
+        default_value = sums["default"]
+        del sums["default"]
+        
+        # Only add it back if there isn't already an 原告1
+        if "原告1" not in sums:
+            sums["原告1"] = default_value
+        else:
+            sums[f"原告{default_count+1}"] = default_value
+    
+    print(f"最終計算結果: {sums}")
+    print(f"\n end of calculate func")
+    print("========== DEBUG: 提取計算標籤結束 ==========\n")
+    return sums
 
 def main():
     """Main function to run the legal document retrieval system"""
@@ -198,32 +277,34 @@ def main():
             
             law_section += "分別定有明文。查被告因上開侵權行為，使原告受有下列損害，依前揭規定，被告應負損害賠償責任："
         else:
-            law_section += "NO LAW"#"因故意或過失，不法侵害他人之權利者，負損害賠償責任。」、「汽車、機車或其他非依軌道行駛之動力車輛，在使用中加損害於他人者，駕駛人應賠償因此所生之損害。」民法第184條第1項前段、第191條之2本文分別定有明文。查被告因上開侵權行為，使原告受有下列損害，依前揭規定，被告應負損害賠償責任："
+            law_section += "NO LAW"
         
-        # Generate second part with LLM
-        print("\n生成第二部分 (損害賠償)...")
-        compensation_prompt = f"""你是一個台灣原告律師，你需要幫忙起草車禍起訴狀中的賠償請求部分。請根據以下提供的受傷情形和損失情況，列出所有可能的賠償項目，每個項目需要有明確的金額和原因。最後需要有一個"綜上所陳"的總結，列出總賠償金額。
+        # Generate first part of compensation with LLM (without the 綜上所陳 and tags)
+        print("\n生成第二部分 (損害賠償項目)...")
+        compensation_prompt_part1 = f"""你是一個台灣原告律師，你需要幫忙起草車禍起訴狀中的賠償請求部分。請根據以下提供的受傷情形和損失情況，列出所有可能的賠償項目，每個項目需要有明確的金額和原因。
+        **不要生成總結或者結論。**
 
 格式要求：
 - 使用（一）、（二）等標記不同賠償項目
 - 每個項目包含標題、金額和請求原因
--若涉及多名原告或多名被告,請分別列出各自的賠償項目及原因。
-- 最後使用僅一個"綜上所陳"進行總結，多名原告也應該只有一個"綜上所陳"
+- 若涉及多名原告或多名被告，請分別列出各自的賠償項目及原因
+- 金額應以數字寫明，勿使用“千”， “萬”等字眼
+- 將原告A等替換成原告名字
+- 禁止輸出賠償金不相關的原告資訊
+- 嚴格按照範本，不要添加額外資訊
 
 多名原告範本：
-    原告A部分:
-    [損害項目名稱1]：[金額]元
+    [原告A名稱]部分:
+    [損害項目名稱1]：[金額]元'\n'
     事實根據：...
-    [損害項目名稱2]：[金額]元
+    [損害項目名稱2]：[金額]元'\n'
     事實根據：...
-    [原告B]部分:
-    [損害項目名稱1]：[金額]元
+    [原告B名稱]部分:
+    [損害項目名稱1]：[金額]元'\n'
     事實根據：...
-    [損害項目名稱2]：[金額]元
+    [損害項目名稱2]：[金額]元'\n'
     事實根據：...
-
-    
-綜上所陳，被告應賠償[原告A]之損害，包含[損害項目名稱1]...元、[損害項目名稱2]...元、[損害項目名稱]... ...元、總計...元；應賠償[原告B]之損害，包含[損害項目名稱1]...元、[損害項目名稱2]...元及[損害項目名稱]... ...元，總計...元。並自起訴狀副本送達翌日起至清償日止，按年息5%計算之利息。 
+**範本結束**
 
 請根據下列受傷情形和損失情況，列出詳細賠償請求：
 
@@ -233,12 +314,91 @@ def main():
 損失情況：
 {query_sections['compensation_facts']}
 """
-#""" 若有平均賠償金額參考，可以考慮接近 {average_compensation:.2f} 元，但應根據實際案情調整。"""
         
-        second_part = retrieval_system.call_llm(compensation_prompt)
-        
+        compensation_part1 = retrieval_system.call_llm(compensation_prompt_part1)
+        print("\n========== DEBUG: 第一部分賠償生成結果 ==========")
+        print(f"前100個字符: {compensation_part1[:100]}...")
+        print("========== DEBUG 結束 ==========\n")
+
+        # Generate second part specifically for calculation tags
+        print("\n生成計算標籤部分...")
+        compensation_prompt_part2 = f"""你是一個台灣原告律師助手，你的任務是幫忙為賠償請求生成計算標籤。請仔細閱讀以下賠償項目清單，然後為每位原告生成一個計算標籤。
+
+賠償項目清單:
+{compensation_part1}
+
+請為每個原告生成一個<calculate>標籤，格式如下:
+<calculate>原告名稱 金額1 金額2 金額3</calculate>
+
+計算標籤的要求:
+1. 標籤內只放數字，不要包含任何文字描述、加號、等號或小計
+2. 數字必須是阿拉伯數字，不要使用中文數字
+3. 不要在數字中包含逗號或其他分隔符
+4. 只列出原始金額，不要自行計算總和
+5. 不要在金額后面加上"元"字
+6. 若賠償項目清單中有原告名稱請忽略這行，如果原告名稱不明確，請使用"default"作為標籤識別符
+
+範例:
+<calculate>原告林某 10000 5000 3000</calculate>
+<calculate>原告王某 8000 2000</calculate>
+
+請僅返回計算標籤，不要添加任何其他解釋或說明。
+"""
+
+        compensation_part2 = retrieval_system.call_llm(compensation_prompt_part2)
+        print("\n========== DEBUG: 計算標籤生成結果 ==========")
+        print(compensation_part2)
+        calc_tags = re.findall(r'<calculate>.*?</calculate>', compensation_part2)
+        print(f"找到的計算標籤數量: {len(calc_tags)}")
+        for i, tag in enumerate(calc_tags):
+            print(f"標籤 {i+1}: {tag}")
+        print("========== DEBUG 結束 ==========\n")
+
+        # Extract and calculate sums from the tags
+        print("\n提取並計算賠償金額...")
+        compensation_sums = extract_calculate_tags(compensation_part2)
+
+        # Print extracted sums
+        for plaintiff, amount in compensation_sums.items():
+            if plaintiff == "default":
+                print(f"總賠償金額: {amount:.2f} 元")
+            else:
+                print(f"[原告{plaintiff}]賠償金額: {amount:.2f} 元")
+
+        # Generate third part of compensation (綜上所陳) with LLM
+        print("\n生成第三部分 (綜上所陳)...")
+
+        # Format the compensation totals
+        summary_totals = []
+        for plaintiff, amount in compensation_sums.items():
+            if plaintiff == "default":
+                summary_totals.append(f"總計{amount:.0f}元")
+            else:
+                summary_totals.append(f"應賠償[原告{plaintiff}]之損害，總計{amount:.0f}元")
+
+        summary_format = "；".join(summary_totals)
+
+        compensation_prompt_part3 = f"""你是一個台灣原告律師，你需要幫忙完成車禍起訴狀中"綜上所陳"的總結部分。請根據以下提供的賠償項目和總額，生成適當的總結段落。
+
+前面列出的賠償項目:
+{compensation_part1}
+
+請使用以下格式範本:
+綜上所陳，被告[列出各原告的所有損害項目及對應金額]，{summary_format}。並自起訴狀副本送達翌日起至清償日止，按年息5%計算之利息。
+**範本結束**
+禁止輸出範本以外的任何東西
+數字必須是阿拉伯數字，不要使用中文數字
+請確保按照上方原本已列出的賠償項目，列出每一項損害內容及金額，不要自己計算金額，使用提供的總額數字。
+"""
+
+        print("\n========== DEBUG: 第三部分賠償提示詞 ==========")
+        print(f"提示詞內容: {compensation_prompt_part3}")
+        print("========== DEBUG 結束 ==========\n")
+
+        compensation_part3 = retrieval_system.call_llm(compensation_prompt_part3)
+
         # Combine all parts
-        final_response = f"{first_part}\n\n{law_section}\n\n{second_part}"
+        final_response = f"{first_part}\n\n{law_section}\n\n{compensation_part1}\n\n{compensation_part3}"
         
         # Print final response
         print("\n========== 最終起訴狀 ==========\n")

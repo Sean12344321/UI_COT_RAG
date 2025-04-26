@@ -1,289 +1,516 @@
-# main.py
+# ts_retrieve_main.py
 import sys
-from datetime import datetime
+import time
 import os
 import re
-from sklearn.metrics.pairwise import cosine_similarity
-from docx import Document
-import pandas as pd
-from dotenv import load_dotenv
-from ts_models import EmbeddingModel
-from ts_text_processor import TextProcessor
-from ts_elasticsearch_utils import ElasticsearchManager
-from ts_neo4j_manager import Neo4jManager
 from typing import List, Dict
-import warnings
+import traceback
+from dotenv import load_dotenv
+from ts_retrieval_system import RetrievalSystem
+from ts_prompt import get_compensation_prompt_part3
+from ts_define_case_type import get_case_type
 
-warnings.filterwarnings("ignore")
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
-class LegalRAGSystem:
-    def __init__(self):
-        load_dotenv()
-        self.embedding_model = EmbeddingModel()
-        self.es_manager = ElasticsearchManager(
-            host="http://localhost:9201",
-            username=os.getenv('ELASTIC_USER'),
-            password=os.getenv('ELASTIC_PASSWORD')
-        )
-        self.neo4j_manager = Neo4jManager(
-            uri=os.getenv('NEO4J_URI'),
-            user=os.getenv('NEO4J_USERNAME'),
-            password=os.getenv('NEO4J_PASSWORD')
-        )
+def extract_calculate_tags(text: str) -> Dict[str, float]:
+    """
+    Extract and calculate the sum of values inside <calculate> </calculate> tags.
+    
+    Args:
+        text: Text containing <calculate> </calculate> tags
         
-        sample_embedding = self.embedding_model.embed_texts(["測試文本"])[0]
-        self.es_manager.setup_indices(len(sample_embedding))
+    Returns:
+        Dictionary mapping plaintiff identifiers to their total compensation amounts
+    """
+    print(f"\n start of calculate func")
+    # Find all <calculate> </calculate> tags
+    pattern = r'<calculate>(.*?)</calculate>'
+    matches = re.findall(pattern, text)
+    print(f"找到 {len(matches)} 個標籤內容")
 
-    def read_docx(self, filename: str) -> str:
-        try:
-            doc = Document(filename)
-            return '\n'.join([para.text for para in doc.paragraphs])
-        except Exception as e:
-            print(f"讀取 DOCX 檔案錯誤: {str(e)}")
-            raise
+    sums = {}
+    default_count = 0
+    
+    for match in matches:
+        # First try to find "原告X" pattern
+        plaintiff_pattern = r'原告(\w+)'
+        plaintiff_match = re.search(plaintiff_pattern, match)
+        
+        plaintiff_id = "default"
+        
+        if plaintiff_match:
+            # Found "原告X" format
+            plaintiff_id = plaintiff_match.group(1)
+        else:
+            # Try to find a name at the beginning (without "原告" prefix)
+            name_pattern = r'^(\w+)'
+            name_match = re.search(name_pattern, match.strip())
+            
+            if name_match and not name_match.group(1).isdigit():
+                plaintiff_id = name_match.group(1)
+            else:
+                # This is a default tag
+                if "default" in sums:
+                    # We already have a default, create a numbered default
+                    default_count += 1
+                    plaintiff_id = f"原告{default_count}"
+                # else use "default" as is
+        
+        # Extract and sum all numbers
+        number_pattern = r'\d+'
+        numbers = re.findall(number_pattern, match)
+        
+        if numbers:
+            try:
+                total = sum(float(num) for num in numbers)
+                
+                # Handle case where this plaintiff ID already exists
+                if plaintiff_id in sums:
+                    default_count += 1
+                    plaintiff_id = f"原告{default_count}"
+                
+                sums[plaintiff_id] = total
+                print(f"計算 {plaintiff_id}: {total}")
+            except ValueError:
+                print(f"警告: 無法計算標籤內的金額: {match}")
+    
+    # Handle case where all tags are defaults - rename them to 原告1, 原告2, etc.
+    if "default" in sums and len(matches) > 1:
+        default_value = sums["default"]
+        del sums["default"]
+        
+        # Only add it back if there isn't already an 原告1
+        if "原告1" not in sums:
+            sums["原告1"] = default_value
+        else:
+            sums[f"原告{default_count+1}"] = default_value
+    
+    print(f"最終計算結果: {sums}")
+    print(f"\n end of calculate func")
+    print("========== DEBUG: 提取計算標籤結束 ==========\n")
+    return sums
 
-    def process_lawyer_input(self, case_text: str, case_id: int):
-        """Process lawyer_input: store full text and chunks in Elasticsearch using chunking and LLM classification"""
+def main():
+    """Main function to run the legal document retrieval system"""
+    start_time = time.time()
+    retrieval_system = None
+    
+    try:
+        print("初始化檢索系統...")
+        # Initialize retrieval system
+        retrieval_system = RetrievalSystem()
+        
+        # Get user query
+        print("\n請輸入 User Query (請貼上完整的律師回覆文本，格式需包含「一、二、三、」三個部分)")
+        print("輸入完畢後按 Enter 再輸入 'q' 或 'quit' 結束:")
+        user_input_lines = []
+        while True:
+            line = input()
+            if line.lower() in ['q', 'quit']:
+                break
+            user_input_lines.append(line)
+            
+        user_query = "\n".join(user_input_lines)
+        
+        if not user_query.strip():
+            print("未輸入查詢內容，程序結束")
+            return
+        
+        # Choose search type
+        print("\n請選擇搜尋類型:")
+        print("1: 使用 'full' 文本進行搜尋")
+        print("2: 使用 'fact' 文本進行搜尋")
+        
+        search_type_choice = input("輸入 1 或 2: ").strip()
+        
+        if search_type_choice == '1':
+            search_type = "full"
+        elif search_type_choice == '2':
+            search_type = "fact"
+        else:
+            print("無效選擇，程序結束")
+            return
+        
+        # Choose k for top-k
         try:
-            # Store full text in Elasticsearch
-            full_embedding = self.embedding_model.embed_texts([case_text])[0]
-            full_chunk_id = f"{case_id}-full"
-            self.es_manager.store_embedding(
-                "full",
-                case_id,
-                full_chunk_id,
-                case_text,
-                full_embedding.tolist()
+            k = int(input("\n請輸入要搜尋的 Top-K 數量: ").strip())
+            if k <= 0:
+                print("K 必須大於 0，程序結束")
+                return
+        except ValueError:
+            print("無效的 K 值，程序結束")
+            return
+        
+        # Choose whether to include conclusion
+        print("\n請選擇要抓取的內容:")
+        print("1: 只抓取 'used_law'")
+        print("2: 抓取 'used_law' 和 'conclusion'")
+        
+        include_conclusion_choice = input("輸入 1 或 2: ").strip()
+        
+        if include_conclusion_choice == '1':
+            include_conclusion = False
+        elif include_conclusion_choice == '2':
+            include_conclusion = True
+        else:
+            print("無效選擇，程序結束")
+            return
+        
+
+        print("\n處理用戶查詢分类...")
+        # Get case type from the query
+        print("判斷案件類型...")
+        
+        case_type, plaintiffs_info = get_case_type(user_query)
+        print(f"案件類型: {case_type}")
+
+        # Search Elasticsearch
+        print(f"\n在 Elasticsearch 中搜索 '{search_type}' 類型的 Top {k} 個文檔...")
+        search_results = retrieval_system.search_elasticsearch(user_query, search_type, k, case_type)
+        
+        if not search_results:
+            print("未找到相符的文檔，程序結束")
+            return
+        
+        # Print search results
+        print("\n搜索結果:")
+        for i, result in enumerate(search_results):
+            print(f"{i+1}. Case ID: {result['case_id']}, 相似度分數: {result['score']:.4f}")
+            print(f"   Chunk ID: {result['chunk_id']}, 類型: {result['text_type']}")
+            # Print a preview of the text
+            preview = result['text'][:100].replace('\n', ' ') + "..." if len(result['text']) > 100 else result['text'].replace('\n', ' ')
+            print(f"   Text: {preview}")
+            print()
+        
+        # Extract case IDs
+        case_ids = [result['case_id'] for result in search_results]
+        print(f"找到的 Case IDs: {case_ids}")
+        
+        # Get the most similar case (first result)
+        most_similar_case_id = search_results[0]['case_id']
+        print(f"\n獲取最相似案件 (Case ID: {most_similar_case_id}) 的完整起訴狀...")
+        
+        # Get full indictment text from Neo4j for the most similar case
+        reference_indictment = retrieval_system.get_indictment_from_neo4j(most_similar_case_id)#CHANGE!!
+        
+        if not reference_indictment:
+            print("警告: 無法獲取參考案件的起訴狀，將使用標準生成流程")
+            reference_parts = {
+                "fact_text": "",
+                "law_text": "",
+                "compensation_text": "",
+                "conclusion_text": ""
+            }
+        else:
+            # Split the indictment into parts
+            print("分割參考案件起訴狀...")
+            reference_parts = retrieval_system.split_indictment_text(reference_indictment)
+            print("參考案件分割完成")
+        
+        # Get laws from Neo4j
+        print("\n從 Neo4j 獲取相關法條...")
+        laws = retrieval_system.get_laws_from_neo4j(case_ids)
+        
+        if not laws:
+            print("警告: 未找到相關法條")
+            laws = []
+        
+        # Count law occurrences
+        law_counts = retrieval_system.count_law_occurrences(laws)
+        print("\n法條出現頻率:")
+        for law, count in sorted(law_counts.items(), key=lambda x: x[1], reverse=True):
+            print(f"法條 {law}: 出現 {count} 次")
+        
+        # Choose threshold j
+        try:
+            j = int(input(f"\n請輸入法條保留閾值 (出現次數 >= j): ").strip())
+            if j <= 0:
+                print("閾值必須大於 0，設置為 1")
+                j = 1
+        except ValueError:
+            print("無效的閾值，設置為 1")
+            j = 1
+        
+        # Filter laws by occurrence threshold
+        filtered_law_numbers = retrieval_system.filter_laws_by_occurrence(law_counts, j)
+        print(f"\n符合出現次數 >= {j} 的法條: {filtered_law_numbers}")
+        
+        # Get law contents
+        law_contents = []
+        if filtered_law_numbers:
+            law_contents = retrieval_system.get_law_contents(filtered_law_numbers)
+            print("\n獲取到的法條內容:")
+            for law in law_contents:
+                print(f"法條 {law['number']}: {law['content']}")
+        
+        # Get conclusions if requested
+        conclusions = []
+        average_compensation = 0.0
+        
+        if include_conclusion:
+            print("\n從 Neo4j 獲取結論文本...")
+            conclusions = retrieval_system.get_conclusions_from_neo4j(case_ids)
+            
+            if not conclusions:
+                print("警告: 未找到結論文本")
+            else:
+                # Calculate average compensation
+                average_compensation = retrieval_system.calculate_average_compensation(conclusions)
+                print(f"\n平均賠償金額: {average_compensation:.2f} 元")
+                print("提取的賠償金額:")
+                for i, conclusion in enumerate(conclusions):
+                    amount = retrieval_system.extract_compensation_amount(conclusion["conclusion_text"])
+                    if amount:
+                        print(f"Case ID {conclusion['case_id']}: {amount:.2f} 元")
+                    else:
+                        print(f"Case ID {conclusion['case_id']}: 無法提取賠償金額")
+        
+        # Process user query
+        print("\n處理用戶查詢...")
+        query_sections = retrieval_system.split_user_query(user_query)
+        
+        # Check if query was split correctly
+        if not query_sections["accident_facts"]:
+            print("警告: 無法正確分割查詢中的事故事實部分")
+        if not query_sections["injuries"]:
+            print("警告: 無法正確分割查詢中的受傷情形部分")
+        if not query_sections["compensation_facts"]:
+            print("警告: 無法正確分割查詢中的賠償事實部分")
+        
+        # Generate summary for quality check
+        print("\n生成案件摘要以供質量檢查...")
+        case_summary = retrieval_system.generate_case_summary(
+            query_sections['accident_facts'], 
+            query_sections['injuries']
+        )
+        print("\n案件摘要:")
+        print(case_summary)
+        
+        # Generate first part with LLM using loop for quality control
+        print("\n生成第一部分 (事故事實)...")
+        max_attempts = 5
+        first_part = None
+        
+        for attempt in range(1, max_attempts + 1):
+            print(f"\n正在進行第 {attempt} 次嘗試生成事故事實...")
+            print(f"query_sections['accident_facts']: {query_sections['accident_facts']}")
+            print(f"reference_parts['fact_text']: {reference_parts['fact_text']}")
+            first_part = retrieval_system.generate_facts(
+                query_sections['accident_facts'],
+                reference_parts['fact_text']
             )
+            print("\n生成的事故事實:")
+            print(first_part)
+            first_part = retrieval_system.clean_facts_part(first_part)
+            print("\n清理後的fact:")
+            print(first_part)
+            # Check quality
+            print("\n檢查生成質量...")
+            quality_check = retrieval_system.check_fact_quality(first_part, case_summary)
+            print(f"質量檢查結果: {quality_check['result']}")
+            print(f"原因: {quality_check['reason']}")
             
-            # Truncate the text - remove part starting with a space or newline followed by "三、"
-            truncated_text = re.split(r'[\s\n]三、', case_text)[0]
-
-            # Remove all spaces and newlines from the truncated text
-            truncated_text = re.sub(r'\s+', '', truncated_text)
-
-            # Chunk the text using semantic chunking
-            chunks = self.chunk_text(truncated_text)
-            for chunk in chunks:
-                chunk_type = TextProcessor.classify_chunk(chunk)
-                embedding = self.embedding_model.embed_texts([chunk])[0]
-                chunk_id = f"{case_id}-{chunk_type}-{self._generate_chunk_sequence(case_id, chunk_type)}"
-                self.es_manager.store_embedding(
-                    chunk_type,
-                    case_id,
-                    chunk_id,
-                    chunk,
-                    embedding.tolist()
-                )
-        except Exception as e:
-            print(f"處理 lawyer_input 案件 {case_id} 時發生錯誤: {str(e)}")
-            raise
-
-    def _generate_chunk_sequence(self, case_id: int, chunk_type: str) -> int:
-        """Generate sequence number for chunk ID in Elasticsearch"""
-        count = self.es_manager.get_chunk_count(case_id, chunk_type)
-        return count + 1
-
-    def process_indictment(self, indictment_text: str, case_id: int):
-        """Process indictment: store full text and split into nodes in Neo4j"""
-        try:
-            # Store full text in Neo4j and split into nodes
-            self.neo4j_manager.create_case_node(case_id, indictment_text, "indictment")
-            self.neo4j_manager.create_indictment_nodes(case_id, indictment_text)
-        except Exception as e:
-            print(f"處理 indictment 案件 {case_id} 時發生錯誤: {str(e)}")
-            raise
-
-    def process_used_laws(self, case_id: int, used_laws_str: str):
-        """Process used laws for indictment cases in Neo4j"""
-        try:
-            law_numbers = TextProcessor.extract_law_numbers(used_laws_str)
-            if not law_numbers:
-                print(f"警告：案件 {case_id} 沒有有效的法條")
-                return
+            if quality_check['result'] == 'pass':
+                print("質量檢查通過，繼續下一步")
+                break
+                
+            if attempt == max_attempts:
+                print(f"警告: 達到最大嘗試次數 ({max_attempts})，使用最後一次生成的結果")
+        
+        # Generate hardcoded law section
+        law_section = "二、按「"
+        if law_contents:
+            for i, law in enumerate(law_contents):
+                content = law["content"]
+                if "：" in content:
+                    content = content.split("：")[1].strip()
+                elif ":" in content:
+                    content = content.split(":")[1].strip()
+                
+                if i > 0:
+                    law_section += "、「"
+                law_section += content
+                law_section += "」"
             
-            for law_number in law_numbers:
-                self.neo4j_manager.create_law_relationships(case_id, law_number)
-        except Exception as e:
-            print(f"處理案件 {case_id} 的法條時發生錯誤: {str(e)}")
-            raise
-
-    def chunk_text(self, text: str, percentage: int = 70, min_chunk_chars: int = 50, max_chunk_chars: int = 230) -> List[str]:
-        sentences = re.split(r'[，。]', text)
-        sentences = [{'sentence': x.strip(), 'index': i} for i, x in enumerate(sentences) if x.strip()]
-
-        embeddings = self.embedding_model.embed_texts([x['sentence'] for x in sentences])
-
-        distances = []
-        for i in range(len(sentences) - 1):
-            similarity = cosine_similarity([embeddings[i]], [embeddings[i + 1]])[0][0]
-            distances.append(similarity)
-            sentences[i]['distance_to_next'] = similarity
-
-        sorted_distances = sorted(distances)
-        cutoff_index = int(len(sorted_distances) * (100 - percentage) / 100)
-        threshold = sorted_distances[cutoff_index]
-
-        indices_above_thresh = [i for i, x in enumerate(distances) if x < threshold]
-
-        chunks = []
-        start_index = 0
-        current_chars = 0
-
-        for i in range(len(sentences)):
-            current_sentence = sentences[i]['sentence']
-            sentence_chars = len(current_sentence)
-
-            # If adding this sentence would exceed max_chunk_chars, split here
-            if i > start_index and current_chars + sentence_chars > max_chunk_chars:
-                group = sentences[start_index:i]
-                combined_text = '。'.join([d['sentence'] for d in group]) + '。'
-                chunks.append(combined_text)
-                start_index = i
-                current_chars = sentence_chars
-            else:
-                current_chars += sentence_chars
-
-            # If this is a semantic split point and we have at least min_chunk_chars
-            if i < len(distances) and distances[i] < threshold and current_chars >= min_chunk_chars:
-                group = sentences[start_index:i+1]
-                combined_text = '。'.join([d['sentence'] for d in group]) + '。'
-                chunks.append(combined_text)
-                start_index = i + 1
-                current_chars = 0
-
-        # Add the last chunk if there's anything left
-        if start_index < len(sentences):
-            combined_text = '。'.join([d['sentence'] for d in sentences[start_index:]]) + '。'
-            chunks.append(combined_text)
-
-        return chunks
-
-    def close(self):
-        self.neo4j_manager.close()
-
-    def main(self):
-        try:
-            # Let user choose what to process
-            print("\n請選擇要處理的類型：")
-            print("1: lawyer_input (僅存入 Elasticsearch)")
-            print("2: indictment (僅存入 Neo4j)")
-            choice = input("輸入 1 或 2: ").strip()
-
-            if choice not in ['1', '2']:
-                print("無效選擇，程序終止")
-                return
-
-            # Determine max_case_id based on choice
-            if choice == '1':
-                max_case_id = self.es_manager.get_max_case_id()
-                print(f"\n從 Elasticsearch 取出最大 case_id 為 {max_case_id}")
-                start_case_id = max_case_id + 1
-                print(f"lawyer_input 將從 case_id {start_case_id} 開始編號")
-            else:
-                max_case_id = self.neo4j_manager.get_max_case_id()
-                print(f"\n從 Neo4j 取出最大 case_id 為 {max_case_id}")
-                start_case_id = max_case_id + 1
-                print(f"indictment 將從 case_id {start_case_id} 開始編號")
-
-            # Ask user if they want to continue
-            proceed = input("是否要繼續處理？(yes/no): ").strip().lower()
-            if proceed != 'yes':
-                print("程序終止")
-                return
-
-            ## Process law and explanation texts (common for both)
-            print("處理法條文本...")
-            law_file = input("Enter filename for law text (DOCX): ").strip()
-            law_text = self.read_docx(law_file)
-
-            print("處理法條說明文本...")
-            explanation_file = input("Enter filename for law explanations (DOCX): ").strip()
-            law_explanation = self.read_docx(explanation_file)
-
-            self.neo4j_manager.create_law_nodes(law_text, law_explanation)
-
-            if choice == '1':
-                # Process lawyer_input
-                print("處理 lawyer_input 資料...")
-                lawyer_file = input("Enter filename for lawyer_input data (XLSX): ").strip()
-                xl = pd.ExcelFile(lawyer_file)
-                print("Available sheets:", xl.sheet_names)
+            law_section += "民法第"
+            for i, law in enumerate(law_contents):
+                if i > 0:
+                    law_section += "、第"
+                law_section += law["number"]
+                law_section += "條"
+            
+            law_section += "分別定有明文。查被告因上開侵權行為，使原告受有下列損害，依前揭規定，被告應負損害賠償責任："
+        else:
+            law_section += "NO LAW"
+        
+        # Compensation generation with unified loop approach
+        print("\n生成賠償部分...")
+        
+        compensation_part1 = None
+        compensation_part2 = None
+        compensation_part3 = None
+        compensation_sums = None
+        final_compensation = None
+        
+        # Main loop - up to 10 attempts for the entire compensation generation
+        max_attempts = 5
+        for main_attempt in range(1, max_attempts + 1):
+            print(f"\n正在進行第 {main_attempt} 次嘗試生成賠償部分...")
+            
+            # Generate part 1
+            print("\n生成第一部分 (損害賠償項目)...")
+            compensation_part1 = retrieval_system.generate_compensation_part1(
+                query_sections['injuries'],
+                query_sections['compensation_facts'],
+                include_conclusion,
+                average_compensation,
+                case_type,  # Pass the case_type parameter
+                plaintiffs_info  # Pass the plaintiffs info parameter
+            )
+            print("\n========== DEBUG: 第一部分賠償生成結果 ==========")
+            print(f"前100個字符: {compensation_part1}...")
+            print("========== DEBUG 結束 ==========\n")
+            compensation_part1 = retrieval_system.clean_compensation_part(compensation_part1)
+            
+            # Generate part 2
+            print("\n生成第二部分 (計算標籤)...")
+            compensation_part2 = None
+            part2_success = False
+            for part2_attempt in range(1, 4):  # max 3 attempts for part 2
+                print(f"\n正在進行第 {part2_attempt} 次嘗試生成計算標籤...")
                 
-                sheet_name = input("Enter sheet name: ").strip()
-                df = pd.read_excel(lawyer_file, sheet_name=sheet_name)
-                print("Available columns:", df.columns.tolist())
+                compensation_part2 = retrieval_system.generate_compensation_part2(compensation_part1, plaintiffs_info)
                 
-                column = input("Enter column name: ").strip()
-                print(f"Available rows: 0 to {len(df)-1}")
+                print("\n========== DEBUG: 計算標籤生成結果 ==========")
+                print(compensation_part2)
+                calc_tags = re.findall(r'<calculate>.*?</calculate>', compensation_part2)
+                print(f"找到的計算標籤數量: {len(calc_tags)}")
+                for i, tag in enumerate(calc_tags):
+                    print(f"標籤 {i+1}: {tag}")
+                print("========== DEBUG 結束 ==========\n")
                 
-                start_row = int(input("Enter start row: ").strip())
-                end_row = int(input("Enter end row: ").strip())
+                # Check quality
+                print("\n檢查計算標籤質量...")
+                quality_check = retrieval_system.check_calculation_tags(compensation_part1, compensation_part2)
+                print(f"質量檢查結果: {quality_check['result']}")
+                print(f"原因: {quality_check['reason']}")
+                
+                if quality_check['result'] == 'pass':
+                    print("質量檢查通過，繼續下一步")
+                    part2_success = True
+                    break
+                    
+                if part2_attempt == 3:
+                    print(f"警告: 達到最大嘗試次數 (3)，使用最後一次生成的計算標籤")
 
-                for i, (_, row) in enumerate(df[column][start_row:end_row+1].items()):
-                    current_case_id = start_case_id + i
-                    print(f"\n處理 lawyer_input 案件 {current_case_id}...")
-                    self.process_lawyer_input(row, current_case_id)
+            # Continue with extracting and calculating sums from the tags
+            # Extract and calculate sums from the tags
+            print("\n提取並計算賠償金額...")
+            compensation_sums = extract_calculate_tags(compensation_part2)
+            
+            # Print extracted sums
+            for plaintiff, amount in compensation_sums.items():
+                if plaintiff == "default":
+                    print(f"總賠償金額: {amount:.2f} 元")
+                else:
+                    print(f"[原告{plaintiff}]賠償金額: {amount:.2f} 元")
+            
+            # Format the compensation totals for part 3
+            summary_totals = []
+            for plaintiff, amount in compensation_sums.items():
+                if plaintiff == "default":
+                    summary_totals.append(f"總計{amount:.0f}元")
+                else:
+                    summary_totals.append(f"應賠償[原告{plaintiff}]之損害，總計{amount:.0f}元")
+            summary_format = "；".join(summary_totals)
+            
+            # Inner loop - up to 3 attempts for part 3 with quality check
+            print("\n生成第三部分 (綜上所陳)...")
+            compensation_part3 = None
+            part3_success = False
+            
+            for part3_attempt in range(1, 6):  # max 6 attempts for part 3
+                print(f"\n正在進行第 {part3_attempt} 次嘗試生成總結...")
+                
+                compensation_part3 = retrieval_system.generate_compensation_part3(compensation_part1, summary_format, plaintiffs_info)
+                
+                print(f"COMPENSATION_PART3 BEFORE QUALITY CHECK AND BEFORE CLEAN:\n {compensation_part3}")
+                compensation_part3 = retrieval_system.clean_conclusion_part(compensation_part3)
+                # Extract the part after "綜上所陳" or "綜上所述"
+                summary_section = ""
+                if "綜上所陳" in compensation_part3:
+                    summary_section = compensation_part3[compensation_part3.find("綜上所陳"):]
+                elif "綜上所述" in compensation_part3:
+                    summary_section = compensation_part3[compensation_part3.find("綜上所述"):]
+                
+                # Check if all amounts from compensation_sums appear in the summary section
+                print("\n檢查總結中是否包含所有賠償金額...")
+                check_result = retrieval_system.check_amounts_in_summary(summary_section, compensation_sums)
+                print(f"檢查結果: {check_result['result']}")
+                print(f"原因: {check_result['reason']}")
+                
+                if check_result['result'] == 'pass':
+                    print("檢查通過，總結中包含所有賠償金額")
+                    part3_success = True
+                    break
+                
+                if part3_attempt == 5: # Changed from 3 to 5 to match the loop range
+                    print(f"警告: 達到最大嘗試次數 (5)，使用最後一次生成的總結")
+            
+            # Combine parts for final check
+            final_compensation = f"{compensation_part1}\n\n{compensation_part3}"
+            
+            # Check the combined compensation format
+            print("\n檢查最終賠償部分格式...")
+            check_result = retrieval_system.check_compensation_format(final_compensation)
+            print(f"格式檢查結果: {check_result}")
+            
+            if "pass" in check_result.lower():
+                print("格式檢查通過")
+                break
+            
+            if main_attempt == max_attempts:
+                print(f"警告: 達到最大嘗試次數 ({max_attempts})，使用最後一次生成的結果")
+                break
+        
+        # Combine all parts
+        final_response = f"{first_part}\n\n{law_section}\n\n{final_compensation}"
+        final_response = retrieval_system.remove_special_chars(final_response)
+        # Print final response
+        print("\n========== 最終起訴狀 ==========\n")
+        print(final_response)
+        print("\n========== 起訴狀結束 ==========\n")
+        
+    except Exception as e:
+        print(f"執行過程中發生錯誤: {str(e)}")
+        traceback.print_exc()
+    finally:
+        if retrieval_system:
+            retrieval_system.close()
+        
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        
+        hours = int(elapsed_time // 3600)
+        minutes = int((elapsed_time % 3600) // 60)
+        seconds = int(elapsed_time % 60)
+        
+        print(f"\n執行時間: {hours}h {minutes}m {seconds}s")
 
-            else:
-                # Process indictment
-                print("處理 indictment 資料...")
-                indictment_file = input("Enter filename for indictment data (XLSX): ").strip()
-                xl = pd.ExcelFile(indictment_file)
-                print("Available sheets:", xl.sheet_names)
-                
-                sheet_name = input("Enter sheet name: ").strip()
-                df = pd.read_excel(indictment_file, sheet_name=sheet_name)
-                print("Available columns:", df.columns.tolist())
-                
-                column = input("Enter column name: ").strip()
-                print(f"Available rows: 0 to {len(df)-1}")
-                
-                start_row = int(input("Enter start row: ").strip())
-                end_row = int(input("Enter end row: ").strip())
 
-                for i, (_, row) in enumerate(df[column][start_row:end_row+1].items()):
-                    current_case_id = start_case_id + i
-                    print(f"\n處理 indictment 案件 {current_case_id}...")
-                    self.process_indictment(row, current_case_id)
-
-                # Process used laws for indictment
-                print("\n處理法條...")
-                laws_file = input("Enter filename for used laws (XLSX): ").strip()
-                xl = pd.ExcelFile(laws_file)
-                print("Available sheets:", xl.sheet_names)
-                
-                sheet_name = input("Enter sheet name: ").strip()
-                laws_df = pd.read_excel(laws_file, sheet_name=sheet_name)
-                print("Available columns:", laws_df.columns.tolist())
-                
-                column = input("Enter column name: ").strip()
-                print(f"Available rows: 0 to {len(laws_df)-1}")
-                start_row = int(input("Enter start row: ").strip())
-                end_row = int(input("Enter end row: ").strip())
-                        
-                for i, (_, row) in enumerate(laws_df[column][start_row:end_row+1].items()):
-                    current_case_id = start_case_id + i
-                    print(f"\n處理案件 {current_case_id} 的法條...")
-                    self.process_used_laws(current_case_id, row)
-
-        except Exception as e:
-            print(f"執行過程中發生錯誤: {str(e)}")
-        finally:
-            self.close()
+def retrieval(user_query):
+    retrieval_system = RetrievalSystem()
+    search_type = "fact" #full or fact
+    k = 5
+    case_type, _ = get_case_type(user_query)
+    print(f"案件類型: {case_type}")
+    print(f"\n在 Elasticsearch 中搜索 '{search_type}' 類型的 Top {k} 個文檔...")
+    search_results = retrieval_system.search_elasticsearch(user_query, search_type, k, case_type)
+    if not search_results:
+        print("未找到相符的文檔，程序結束")
+        return
+    case_ids = [result['case_id'] for result in search_results]
+    print("在neo4j中找到對應的起訴狀")
+    case_texts = retrieval_system.get_casetext_from_neo4j(case_ids)
+    return case_texts
 
 if __name__ == "__main__":
-    import time
-    start_time = time.time()
-    
-    rag_system = LegalRAGSystem()
-    rag_system.main()
-    
-    end_time = time.time()
-    elapsed_time = end_time - start_time
-    
-    hours = int(elapsed_time // 3600)
-    minutes = int((elapsed_time % 3600) // 60)
-    seconds = int(elapsed_time % 60)
-    
-    print(f"\nTotal execution time: {hours}h {minutes}m {seconds}s")
+    main()

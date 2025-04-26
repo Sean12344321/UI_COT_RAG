@@ -1,5 +1,5 @@
 from utils import Tools
-import re
+import re, time
 # 事實陳述摘要
 truth_summary = """請根據輸入資訊擷取關鍵資訊，並遵循以下格式輸出：
 ============================
@@ -15,19 +15,18 @@ truth_prompt = """
 """
 # 事實陳述檢查
 address_truth_check = """
-你要比較括號中的兩個地址是否完全相同，包括城市、地區、路名及門牌號碼等細節。
-請依照以下步驟進行逐項檢查：
+你要比較括號中的兩個地址是否在實質上屬於同一地點。請依以下規則判斷：
 
-步驟一：比對「城市」、「地區」、「道路名稱」是否一致。
-步驟二：如果門牌號碼有提供，則需完全一致；若未提供門牌號碼，則忽略此項。
-步驟三：如果差異僅在「附近」、「對面」、「旁邊」等模糊詞，仍視為一致。
-步驟四：若有明確差異（例如不同路名、地區或城市），則輸出「reject」。
-步驟五：只有當所有項目符合上述條件時，才輸出「accept」。
+步驟一：如果任一方的地址為「無」、「未記載」、「不詳」或明顯缺漏，則直接判斷為「reject」，無需進行後續比對。
+步驟二：比對「城市」、「地區」、「道路名稱」是否一致。若一致則進行下一步；若有不同，則直接輸出「reject」。
+步驟三：門牌號碼若完全相同，則視為一致；若有小幅差異（例如門牌差距在50號以內），仍可視為一致；
+步驟四：如果描述中出現「附近」、「對面」、「旁邊」等模糊詞，可容許小範圍差異，視為一致。
+步驟五：依上述檢查結果，若整體可認定為同一地點，則輸出「accept」；若有明確不同，則輸出「reject」。
 
 請依照以下格式生成輸出：
 ===========================
 [推理過程]:
-(請寫下每一項檢查的判斷過程)
+(請逐項說明城市、地區、道路名稱與門牌號碼的比對結果，以及你的判斷依據)
 
 [判決結果]:
 (只填 accept 或 reject，不能同時出現)
@@ -94,25 +93,30 @@ def check_input_output_content(input, output):
     # 檢查輸入和輸出內容是否一致
     global address_truth_check
     global time_truth_check
+    print("輸出:\n", output)
     input_abs = generate_summary(input)
     output_abs = generate_summary(output)
     if input_abs == False or output_abs == False:
         return False
-    input_address_truth_check = f"[{input_abs["案發地點"]}]，[{output_abs["案發地點"]}]" + address_truth_check
-    input_time_truth_check = f"[{input_abs["案發時間"]}]，[{output_abs["案發時間"]}]" + time_truth_check
-    address_response = Tools.llm_generate_response(input_address_truth_check)
-    time_response = Tools.llm_generate_response(input_time_truth_check)
-    print("輸入: ", input)
-    print("輸出: ", output)
-    print("==================================================================")
-    print(input_abs, '\n')
-    print(output_abs)
-    print("===================================================================")
-    print(address_response, '\n')
-    print(time_response) 
-    addr_match = re.search(r"[^\n]*判決結果[^\n]*[：:\n]\s*[^\w]*(accept|reject|接受|拒絕)[^\w]*", address_response, re.IGNORECASE)
-    time_match = re.search(r"[^\n]*判決結果[^\n]*[：:\n]\s*[^\w]*(accept|reject|接受|拒絕)[^\w]*", time_response, re.IGNORECASE)
-    if addr_match and addr_match.group(1).lower() in ["accept", "接受"] and time_match and time_match.group(1).lower() in ["accept", "接受"]:
+    print("輸入摘要:\n", input_abs)
+    print("輸出摘要:\n", output_abs)
+    processed_address_truth_check = f"[{input_abs["案發地點"]}]，[{output_abs["案發地點"]}]" + address_truth_check
+    processed_time_truth_check = f"[{input_abs["案發時間"]}]，[{output_abs["案發時間"]}]" + time_truth_check
+    address_response = Tools.llm_generate_response(processed_address_truth_check).replace('=', '')
+    time_response = Tools.llm_generate_response(processed_time_truth_check).replace('=', '')
+    print("地址檢查:\n", address_response)
+    print("時間檢查:\n", time_response)
+    address_last_line = address_response.strip().split('\n')[-1].lower()
+    time_last_line = time_response.strip().split('\n')[-1].lower()
+    
+    def contains_accept(text):
+        return "accept" in text or "接受" in text
+    def contains_reject(text):
+        return "reject" in text or "拒絕" in text
+    
+    if contains_accept(address_last_line) and contains_accept(time_last_line) and not contains_reject(address_last_line) and not contains_reject(time_last_line):
+        return True
+    elif contains_accept(address_response) and contains_accept(time_response) and not contains_reject(address_response) and not contains_reject(time_response):
         return True
     else:
         return False
@@ -122,21 +126,34 @@ def generate_fact_statement(input, reference_facts):
     size = len(reference_facts)
     cnt = 0 #生成次數
     while True:
-        input_truth_prompt = f"\n範例格式:{reference_facts[int(cnt / 5)%size]}" + truth_prompt
+        if cnt % 5 == 0:
+            print("參考輸出:\n", reference_facts[int(cnt / 5)%size])
+        processed_truth_prompt = f"\n範例格式:{reference_facts[int(cnt / 5)%size]}" + truth_prompt
         input = Tools.remove_input_specific_part(input)
-        print("參考輸出:", reference_facts[int(cnt / 5)%size])
-        result = Tools.combine_prompt_generate_response(input, input_truth_prompt)
+        result = Tools.combine_prompt_generate_response(input, processed_truth_prompt)
         cnt += 1
-        print("生成次數:", cnt)
         #避免提前做結尾或者分段
-        if "綜上所述" in result or '\n' in result or "二、" in result or "三、" in result:
+        if "綜上所述" in result or '\n' in result or "二、" in result or "三、" in result or ("民法" in result and "民法" not in input):
+            print(result)
             print("生成格式不符合要求，重新生成")
-            continue
         #如果輸入和輸出的擷取內容一致則跳出
-        if check_input_output_content(input, result):
+        elif check_input_output_content(input, result) == False:
+            print("判斷輸入和輸出的時間地點或內容不一致，重新生成")
+        else:
             break
+        print("=" * 50)
     if "一、" not in result:
         result = "一、" + result
     return result
 if __name__ == "__main__":
+    start_time = time.time()    
     print(generate_fact_statement(user_input, rag_references))
+    print("=" * 50)
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    
+    hours = int(elapsed_time // 3600)
+    minutes = int((elapsed_time % 3600) // 60)
+    seconds = int(elapsed_time % 60)
+    
+    print(f"\n執行時間: {hours}h {minutes}m {seconds}s")

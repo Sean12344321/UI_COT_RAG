@@ -22,7 +22,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "KG_RAG_B"))
 sys.path.append(os.path.join(os.path.dirname(__file__), "chunk_RAG"))
 
 from KG_RAG_B.KG_Faiss_Query_3068 import query_simulation
-from chunk_RAG.main import retrieval
+from chunk_RAG.ts_main import retrieval
 
 # 載入資料
 embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
@@ -69,21 +69,21 @@ def generate_lawsheet(input_data, rag_option="1"):
     else:
         return "請輸入正確的選項(1或2)", "", ""
 
-    facts, laws, compensations = [], [], []
+    facts, laws_id, compensations = [], [], []
     data = Tools.split_user_input(input_data)
 
     for i, ref in enumerate(references):
-        parsed = Tools.split_user_output(ref)
+        parsed = Tools.split_user_output(ref["case_text"])
         if not parsed:
             debug.append(f"[清洗] 第{i+1}筆資料格式錯誤，跳過")
             continue
         facts.append(parsed["fact"])
-        laws.append(parsed["law"])
+        laws_id.append(ref["case_id"])
         compensations.append(parsed["compensation"])
         debug.append(f"[清洗] 第{i+1}筆資料成功解析")
 
     part1, log1 = generate_fact_statement(data["case_facts"] + '\n' + data["injury_details"], facts)
-    part2 = laws[0] if laws else ""
+    part2 = Tools.generate_laws(laws_id, 2) # 法條ID, threshold
     part3, log2 = generate_compensate(input_data, compensations)
 
     result = part1 + '\n\n' + part2 + '\n\n' + part3

@@ -1,6 +1,10 @@
 from ollama import chat, ChatResponse
-import re
-
+import re, os, sys
+os.chdir(os.path.dirname(__file__))
+sys.path.append(os.path.join(os.path.dirname(__file__), "chunk_RAG"))
+sys.path.append(os.path.join(os.path.dirname(__file__), "KG_RAG_B"))
+from chunk_RAG.ts_retrieval_system import RetrievalSystem
+retrieval_system = RetrievalSystem()
 class Tools:
     def llm_generate_response(input_data):
         """
@@ -94,3 +98,46 @@ class Tools:
         {input}
         {prompt}"""
         return Tools.llm_generate_response(fact_input) 
+    def generate_laws(case_ids, threshold):
+        laws = retrieval_system.get_laws_from_neo4j(case_ids)
+        law_counts = retrieval_system.count_law_occurrences(laws)
+        filtered_law_numbers = retrieval_system.filter_laws_by_occurrence(law_counts, threshold)
+        law_contents = []
+        if filtered_law_numbers:
+            law_contents = retrieval_system.get_law_contents(filtered_law_numbers)
+        law_section = "二、按「"
+        if law_contents:
+            for i, law in enumerate(law_contents):
+                content = law["content"]
+                if "：" in content:
+                    content = content.split("：")[1].strip()
+                elif ":" in content:
+                    content = content.split(":")[1].strip()
+                
+                if i > 0:
+                    law_section += "、「"
+                law_section += content
+                law_section += "」"
+            
+            law_section += "民法第"
+            for i, law in enumerate(law_contents):
+                if i > 0:
+                    law_section += "、第"
+                law_section += law["number"]
+                law_section += "條"
+            
+            law_section += "分別定有明文。查被告因上開侵權行為，使原告受有下列損害，依前揭規定，被告應負損害賠償責任："
+        else:
+            law_section += "NO LAW"
+        return law_section
+    def generate_to_UI(result_data, similar_data, debug_data):
+        """
+        generate to UI
+        Args:
+            result_data (str): generated result
+            similar_data (str): similar data
+            debug_data (str): debug data
+        Returns:
+            str: formatted string for UI
+        """
+        return result_data, similar_data, debug_data
