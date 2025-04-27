@@ -134,9 +134,11 @@ labels = [
     '（十一）', '（十二）', '（十三）', '（十四）', '（十五）', '（十六）', '（十七）', '（十八）', '（十九）', '（二十）',
     '（二十一）', '（二十二）', '（二十三）', '（二十四）', '（二十五）', '（二十六）', '（二十七）', '（二十八）', '（二十九）', '（三十）'
 ]
+tools = None
 def get_exact_amount(extract_amount_prompt):
-    response = Tools.llm_generate_response(extract_amount_prompt)
+    response = tools.llm_generate_response(extract_amount_prompt)
     print("金額提取過程:\n", response)
+    yield tools.show_debug_to_UI(f"金額提取過程:\n{response}")
     numbers = re.findall(r'\d+', response)
     if len(numbers) == 0:
         return False
@@ -150,16 +152,19 @@ def check_and_generate_summary_items(text):
             match = re.search(r'(\d+(,\d{3})*|\d+)元$', line)
             if match and match.group(0).replace(',', '') == '0元':
                 print("money should not be 0")
+                yield tools.show_debug_to_UI("金額不應為0")
                 return False
             match = re.search(r'（(.*?)）', line)
             if match.group(0) not in labels: # 括號裡面不是中文字
                 print("（）should contain chinese")
+                yield tools.show_debug_to_UI("括號內應為中文")
                 return False
             line = line[:match.start()] + labels[len(text_array)] + line[match.end():]
             line = re.sub(r'[。\.]', '', line)
             text_array.append(line)
         elif line != "":
             print("format error")
+            yield tools.show_debug_to_UI("格式錯誤")
             return False
     return text_array
 
@@ -167,19 +172,23 @@ def generate_compensate_summary(input_text):
     """1. 取得原告姓名，判斷是單名還是多名原告來改變提示詞"""
     case_type = get_case_type(input_text)
     print(f"案件類型: {case_type}")
+    yield tools.show_debug_to_UI(f"案件類型: {case_type}")
     if case_type == "單純原被告各一" or case_type == "數名被告":
         prompt = single_money_summary_prompt
     else:
         prompt = multiple_money_summary_prompt
     """2. 取得賠償摘要"""
-    summary = Tools.combine_prompt_generate_response(input_text, prompt)
-    while(check_and_generate_summary_items(summary) == False):
+    summary = tools.combine_prompt_generate_response(input_text, prompt)
+    judge = yield from check_and_generate_summary_items(summary)
+    while(judge == False):
         print(summary)
         print("格式錯誤，重新生成")
         print("=" * 50)
-        summary = Tools.combine_prompt_generate_response(input_text, prompt)
-    print(summary)
-    print("=" * 50)
+        yield tools.show_debug_to_UI(f"{summary}\n格式錯誤，重新生成\n" + "=" * 50)
+        summary = tools.combine_prompt_generate_response(input_text, prompt)
+        judge = yield from check_and_generate_summary_items(summary)
+    print(summary, '\n', "=" * 50)
+    yield tools.show_debug_to_UI(f"賠償摘要:\n{summary}\n" + "=" * 50)
     return summary
 
     
@@ -210,8 +219,8 @@ def generate_reference_array(references):
 
 
 def compensate_iteration(user_input, references):
-    summary = generate_compensate_summary(user_input)
-    compensate_items = check_and_generate_summary_items(summary)
+    summary = yield from generate_compensate_summary(user_input)
+    compensate_items = yield from check_and_generate_summary_items(summary)
     reference_array = generate_reference_array(references)
     result = ""
     total_money = 0
@@ -224,39 +233,47 @@ def compensate_iteration(user_input, references):
         retry_count = 0
         input_compensate_prompt = compensate_prompt + f"\n\n生成格式:\n{output}"
         while True:
-            response = Tools.combine_prompt_generate_response(user_input, input_compensate_prompt)
+            response = tools.combine_prompt_generate_response(user_input, input_compensate_prompt)
             first_sentence = response.strip().split('\n')[0].strip()    
             other_sentences = '\n'.join(response.strip().split('\n')[1:]).strip()
             if first_sentence[0] != '（' or first_sentence[-1] != '元':
                 print(response)
                 print("格式錯誤，重新生成")
                 print("=" * 50)
+                yield tools.show_debug_to_UI(f"{response}\n格式錯誤，重新生成\n" + "=" * 50)
             else:
                 processed_compensation_amount_prompt = compensation_amount_prompt + other_sentences
-                compensate_response = Tools.llm_generate_response(processed_compensation_amount_prompt)
+                compensate_response = tools.llm_generate_response(processed_compensation_amount_prompt)
                 print(f"賠償描述:\n{other_sentences}")
                 print(f"賠償金額推理過程:\n{compensate_response}")
+                yield tools.show_debug_to_UI(f"賠償描述:\n{other_sentences}\n賠償金額推理過程:\n{compensate_response}")
                 # 提取金額
                 processed_extract_amount_prompt = extract_amount_prompt + first_sentence
-                amount1 = get_exact_amount(processed_extract_amount_prompt)
+                amount1 = yield from get_exact_amount(processed_extract_amount_prompt)
                 processed_extract_amount_prompt = extract_amount_prompt + compensate_response.split('\n')[-1]
-                amount2 = get_exact_amount(processed_extract_amount_prompt)
+                amount2 = yield from get_exact_amount(processed_extract_amount_prompt)
                 # 判斷金額是否相同
                 print(f"原本句子:{first_sentence}, 提取金額:{amount1}")
                 print(f"生成句子:{compensate_response.split('\n')[-1]}, 提取金額:{amount2}")
+                yield tools.show_debug_to_UI(f"原本句子:{first_sentence}, 提取金額:{amount1}\n生成句子:{compensate_response.split('\n')[-1]}, 提取金額:{amount2}")
                 if not amount1.isdigit() or not amount2.isdigit():
                     print("金額格式錯誤，重新生成")
+                    yield tools.show_debug_to_UI("金額格式錯誤，重新生成")
                     retry_count += 1
                 elif amount1 == amount2:
                     print("金額相同，通過檢查")
+                    yield tools.show_debug_to_UI("金額相同，通過檢查")
                     total_money += int(amount1)
                     break
                 else:
                     print("金額不同，重新生成")
+                    yield tools.show_debug_to_UI("金額不同，重新生成")
                     retry_count += 1
                 print("=" * 50)
+                yield tools.show_debug_to_UI("=" * 50)
             if retry_count >= 7:
-                print(f"第{i+1}筆 item 嘗試超過 7 次仍無法通過檢查，跳過處理並重新生成整體 text。\n")
+                print("賠償項目嘗試超過 7 次仍無法通過檢查，跳過處理並重新生成整體 text。\n")
+                yield tools.show_debug_to_UI("賠償項目嘗試超過 7 次仍無法通過檢查，跳過處理並重新生成整體 text。\n")
                 return None
         #去掉多餘的空白行
         lines = response.split('\n')
@@ -264,57 +281,73 @@ def compensate_iteration(user_input, references):
         response = '\n'.join(non_empty_lines).strip()
         print(response)
         print("=" * 50)
+        yield tools.show_result_to_UI(response)
         result += response + "\n\n"
     # 生成總結句
     processed_summary = summary + f"\n{labels[len(compensate_items)]}總計賠償金額: {total_money}元"
     print(processed_summary)
     print("=" * 50)
+    yield tools.show_debug_to_UI(f"賠償總結:\n{processed_summary}\n" + "=" * 50)
     processed_compensation_sum_prompt = compensation_sum_prompt + f"""【範例格式】\n{reference_array[-1]}\n\n【賠償項目】\n{processed_summary}【請完成以下總結句】\n{labels[len(compensate_items)]}"""
     retry_count = 0
     while True:
-        sum_response = Tools.llm_generate_response(processed_compensation_sum_prompt)
+        sum_response = tools.llm_generate_response(processed_compensation_sum_prompt)
         processed_compensation_amount_prompt = compensation_amount_prompt + sum_response
-        compensate_response = Tools.llm_generate_response(processed_compensation_amount_prompt)
+        compensate_response = tools.llm_generate_response(processed_compensation_amount_prompt)
         # 提取金額
         processed_extract_amount_prompt = extract_amount_prompt + compensate_response.split('\n')[-1]
-        amount = get_exact_amount(processed_extract_amount_prompt)
+        amount = yield from get_exact_amount(processed_extract_amount_prompt)
         print(sum_response)
         print(f"賠償金額推理過程:{compensate_response}")
         print(f"賠償金額:{amount}, 加總金額:{total_money}")
+        yield tools.show_debug_to_UI(f"賠償金額推理過程:\n{compensate_response}\n賠償金額:{amount}, 加總金額:{total_money}")
         # 判斷金額是否相同
         if not amount.isdigit():
             print("金額格式錯誤，重新生成")
+            yield tools.show_debug_to_UI("金額格式錯誤，重新生成")
             retry_count += 1
         elif int(amount) == int(total_money):
             print("金額相同，通過檢查")
+            yield tools.show_debug_to_UI("金額相同，通過檢查")
             break
         else:
             print("金額不同，重新生成")
+            yield tools.show_debug_to_UI("金額不同，重新生成")
             retry_count += 1
         print("=" * 50)
+        yield tools.show_debug_to_UI("=" * 50)
         if retry_count >= 7:
-            print("總結句生成錯誤，跳過處理並重新生成整體 text。\n")
+            print("賠償項目嘗試超過 7 次仍無法通過檢查，跳過處理並重新生成整體 text。\n")
+            yield tools.show_debug_to_UI("賠償項目嘗試超過 7 次仍無法通過檢查，跳過處理並重新生成整體 text。\n")
             return None
     if sum_response[0] != '（':
         sum_response = labels[len(compensate_items)] + sum_response
     result += sum_response
+    yield tools.show_result_to_UI(sum_response)
+    print(result)
     return result
 
-def generate_compensate(user_input, references):
+def generate_compensate(user_input, references, passed_tools):
     # 生成賠償項目
+    global tools
+    tools = passed_tools
     result = None
     size = len(references)
     id = 0
     while result == None:#生成錯誤
         print("參考資料:\n", references[(id) % size])
-        result = compensate_iteration(user_input, references[(id) % size])
+        result = yield from compensate_iteration(user_input, references[(id) % size])
         id += 1
     return result
 
 if __name__ == "__main__":
     start_time = time.time()
-    print(generate_compensate(user_input, references))
-    print("=" * 50)
+    tools = Tools("kenneth85/llama-3-taiwan:8b-instruct-dpo")
+    for part, reference, log in generate_compensate(user_input, references, tools):
+        # print(f"生成的內容:\n{part}")
+        # print(f"參考資料:\n{reference}")
+        # print(f"推理紀錄:\n{log}")
+        pass
     end_time = time.time()
     elapsed_time = end_time - start_time
     

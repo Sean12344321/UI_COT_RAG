@@ -6,7 +6,9 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "KG_RAG_B"))
 from chunk_RAG.ts_retrieval_system import RetrievalSystem
 retrieval_system = RetrievalSystem()
 class Tools:
-    def llm_generate_response(input_data):
+    def __init__(self, model):
+        self.model = model
+    def llm_generate_response(self, input_data):
         """
         use LLM to generate response
         Args:
@@ -22,13 +24,13 @@ class Tools:
                         'content': input_data,
                     },
                 ],
-                model='kenneth85/llama-3-taiwan:8b-instruct-dpo',
+                model=self.model,
             )
             return response['message']['content']
         except Exception as e:
             return f"Error: {e}"
     
-    def split_user_input(user_input):
+    def split_user_input(self, user_input):
         """
         split user input by 一、二 and 三
         Args:
@@ -44,7 +46,7 @@ class Tools:
         }
         return input_dict
 
-    def split_user_output(output):
+    def split_user_output(self, output):
         """
         split lawsheet by 一、二 and 綜上所陳
         Args:
@@ -69,7 +71,7 @@ class Tools:
             "compensation": reference_compensation
         }
     
-    def remove_input_specific_part(input):
+    def remove_input_specific_part(self, input):
         """
         remove「一、事故發生緣由:」and「二、原告受傷情形:」
         Args:
@@ -85,7 +87,8 @@ class Tools:
         if len(parts) > 1:
             input = parts[0] + parts[1]  # 把後段當作最終的 text（繼續保留後續內容）
         return input.strip().replace('\n', '')
-    def combine_prompt_generate_response(input, prompt):
+    
+    def combine_prompt_generate_response(self, input, prompt):
         """
         combine input and prompt to generate response
         Args:
@@ -97,8 +100,9 @@ class Tools:
         fact_input = f"""輸入:
         {input}
         {prompt}"""
-        return Tools.llm_generate_response(fact_input) 
-    def generate_laws(case_ids, threshold):
+        return self.llm_generate_response(fact_input)
+    
+    def generate_laws(self, case_ids, threshold):
         laws = retrieval_system.get_laws_from_neo4j(case_ids)
         law_counts = retrieval_system.count_law_occurrences(laws)
         filtered_law_numbers = retrieval_system.filter_laws_by_occurrence(law_counts, threshold)
@@ -130,14 +134,34 @@ class Tools:
         else:
             law_section += "NO LAW"
         return law_section
-    def generate_to_UI(result_data, similar_data, debug_data):
+    
+    def show_result_to_UI(self, result_data):
         """
         generate to UI
         Args:
             result_data (str): generated result
-            similar_data (str): similar data
+        Returns:
+            str: formatted string for UI
+        """
+        return result_data, '', ''
+    
+    def show_reference_to_UI(self, reference_data):
+        """
+        generate to UI
+        Args:
+            reference_data (str): generated result
             debug_data (str): debug data
         Returns:
             str: formatted string for UI
         """
-        return result_data, similar_data, debug_data
+        return '', reference_data, ''
+    
+    def show_debug_to_UI(self, debug_data):
+        """
+        generate to UI
+        Args:
+            debug_data (str): debug data
+        Returns:
+            str: formatted string for UI
+        """
+        return '', '', debug_data

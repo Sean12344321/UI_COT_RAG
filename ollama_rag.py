@@ -1,7 +1,7 @@
 import pandas as pd
 import os, sys, time
 from generate_compensate import generate_compensate
-from generate_truth import generate_fact_statement, generate_simple_fact_statement
+from generate_truth import generate_fact_statement
 from utils import Tools
 os.chdir(os.path.dirname(__file__))
 # 將 KG_RAG 目錄添加到 sys.path
@@ -13,7 +13,6 @@ df = pd.read_csv('dataset.csv')
 df2 = pd.read_csv('dataset(no_law).csv')
 inputs = df["模擬輸入內容"].tolist()[:-2]
 template_output = df2["gpt-4o-mini-2024-07-18\n3000筆"].tolist()
-
 def generate_lawsheet(input_data):
     """處理單個生成請求並輸出結果"""
     userinput = input("請選擇使用的RAG資料庫(1: KG_RAG, 2: chunk_RAG): ")
@@ -29,25 +28,30 @@ def generate_lawsheet(input_data):
     facts = []
     case_ids = []
     compensations = []
-    data = Tools.split_user_input(input_data)
+    data = tools.split_user_input(input_data)
     for i, reference in enumerate(references):
-        splited_reference = Tools.split_user_output(reference["case_text"])
+        splited_reference = tools.split_user_output(reference["case_text"])
         case_ids.append(reference["case_id"])
         if splited_reference == False:
             print(f"第{i}格式錯誤，不參考這筆資料")
             continue
         facts.append(splited_reference["fact"])
         compensations.append(splited_reference["compensation"])
-    first_part = generate_fact_statement(data["case_facts"] + '\n' + data["injury_details"], facts)
+    first_part = yield from generate_fact_statement(data["case_facts"] + '\n' + data["injury_details"], facts, tools)
     print(first_part)
     print("第一段生成完成")
     print("=" * 50)
-    second_part = Tools.generate_laws(case_ids, 2)
+    yield tools.show_debug_to_UI(f"{first_part}\n第一段生成完成\n{'=' * 50}")
+    second_part = tools.generate_laws(case_ids, 2)
     print(second_part)
     print("第二段生成完成")
     print("=" * 50)
-    third_part = generate_compensate(input_data, compensations)
-    return first_part + '\n\n' + second_part + '\n\n' + third_part 
+    yield tools.show_debug_to_UI(f"{second_part}\n第二段生成完成\n{'=' * 50}")
+    third_part = yield from generate_compensate(input_data, compensations, tools)
+    result = first_part + '\n\n' + second_part + '\n\n' + third_part
+    print(result)
+    yield tools.show_result_to_UI(result)
+    return result
     
 
 tmp_prompt = """一、事故發生緣由:
@@ -68,15 +72,17 @@ tmp_prompt = """一、事故發生緣由:
  
  原告因本件事故受有左肩、左前臂、左手擦傷、左踝擦挫傷等傷害，並且經過持續回診之情形，精神上受有相當痛苦；而原告為大學畢業，原任職於康舒科技股份有限公司，月薪7萬2,800元，請求鈞院衡量原告所受傷勢、本件事故發生原因及兩造財產資力等一切情狀，命被告支付精神慰撫金99萬元，以填補原告所受非財產上損害。
 """
-
 if __name__ == "__main__":
     start_time = time.time()
-    print(generate_lawsheet(tmp_prompt))
-    print("=" * 50)
+    tools = Tools("kenneth85/llama-3-taiwan:8b-instruct-dpo")
+    for part, ref, audit in generate_lawsheet(tmp_prompt):
+        # print(f"生成的內容:\n{part}")
+        # print(f"參考資料:\n{ref}")
+        # print(f"推理紀錄:\n{audit}")
+        pass
     end_time = time.time()
     elapsed_time = end_time - start_time
     hours = int(elapsed_time // 3600)
     minutes = int((elapsed_time % 3600) // 60)
     seconds = int(elapsed_time % 60)
-    
     print(f"\n執行時間: {hours}h {minutes}m {seconds}s")

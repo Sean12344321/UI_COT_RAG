@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # coding: utf-8
 
-import os, sys, time, tempfile
+import os, sys, time, tempfile, re
 import pandas as pd
 import torch, numpy as np
 from sentence_transformers import SentenceTransformer
@@ -45,18 +45,18 @@ def get_similar_examples(input_text, top_k=3):
     return [(inputs[i], template_output[i], float(similarities[i])) for i in top_k_idx]
 
 def generate_fact_statement(*args, **kwargs):
-    result = raw_generate_fact_statement(*args, **kwargs)
+    result = yield from raw_generate_fact_statement(*args, **kwargs)
     if isinstance(result, tuple):
         return result
     return result, ""
 
 def generate_compensate(*args, **kwargs):
-    result = raw_generate_compensate(*args, **kwargs)
+    result = yield from raw_generate_compensate(*args, **kwargs)
     if isinstance(result, tuple):
         return result
     return result, ""
 
-def generate_lawsheet(input_data, rag_option="1"):
+def generate_lawsheet(input_data, rag_option="1", tools=Tools("kenneth85/llama-3-taiwan:8b-instruct-dpo")):
     debug = []
     start_time = time.time()
     debug.append(f"[時間] {time.strftime('%Y-%m-%d %H:%M:%S')} 啟動起訴狀生成")
@@ -70,10 +70,10 @@ def generate_lawsheet(input_data, rag_option="1"):
         return "請輸入正確的選項(1或2)", "", ""
 
     facts, laws_id, compensations = [], [], []
-    data = Tools.split_user_input(input_data)
+    data = tools.split_user_input(input_data)
 
     for i, ref in enumerate(references):
-        parsed = Tools.split_user_output(ref["case_text"])
+        parsed = tools.split_user_output(ref["case_text"])
         if not parsed:
             debug.append(f"[清洗] 第{i+1}筆資料格式錯誤，跳過")
             continue
@@ -82,11 +82,53 @@ def generate_lawsheet(input_data, rag_option="1"):
         compensations.append(parsed["compensation"])
         debug.append(f"[清洗] 第{i+1}筆資料成功解析")
 
-    part1, log1 = generate_fact_statement(data["case_facts"] + '\n' + data["injury_details"], facts)
-    part2 = Tools.generate_laws(laws_id, 2) # 法條ID, threshold
-    part3, log2 = generate_compensate(input_data, compensations)
-
-    result = part1 + '\n\n' + part2 + '\n\n' + part3
+    # 即時生成
+    main_output = ""
+    reference_ouptut = references
+    debug_output = ""
+    log1 = ""
+    log2 = ""
+    yield main_output, reference_ouptut, debug_output
+    # 生成事實陳述
+    for part1, ref1, audit1 in generate_fact_statement(data["case_facts"] + '\n' + data["injury_details"], facts, tools):
+        main_output += part1
+        reference_ouptut += ref1
+        debug_output += audit1
+        if part1 != "":
+            main_output += '\n'
+        if ref1 != "":
+            reference_ouptut += '\n'
+        if audit1 != "":
+            debug_output += '\n'
+        log1 += audit1
+        yield main_output, reference_ouptut, debug_output   
+    # 生成法律條文
+    main_output += '\n'
+    part2 =  tools.generate_laws(laws_id, 2)
+    main_output += part2 + "\n\n"
+    yield main_output, reference_ouptut, debug_output   
+    # 生成賠償請求
+    for part3, ref3, audit3 in generate_compensate(input_data, compensations, tools):
+        main_output += part3
+        reference_ouptut += ref3
+        debug_output += audit3
+        if part3 != "":
+            main_output += "\n\n"
+        if ref3 != "":
+            reference_ouptut += '\n'
+        if audit3 != "":
+            debug_output += '\n'
+        if audit3 == "賠償項目嘗試超過 7 次仍無法通過檢查，跳過處理並重新生成整體 text。\n":
+            main_output = re.sub(r'（一）.*', '', main_output, flags=re.DOTALL)
+        log2 += audit3
+        yield main_output, reference_ouptut, debug_output
+    result = main_output
+    print(result)
+    # part1, log1 = generate_fact_statement(data["case_facts"] + '\n' + data["injury_details"], facts)
+    # part2 = tools.generate_laws(laws_id, 2) # 法條ID, threshold
+    # part3, log2 = generate_compensate(input_data, compensations)
+    # result = part1 + '\n\n' + part2 + '\n\n' + part3
+    result = main_output
     history.append(result)
 
     examples = get_similar_examples(input_data)
@@ -147,5 +189,5 @@ with gr.Blocks() as demo:
     pdf_btn.click(export_pdf, inputs=result_output, outputs=pdf_file)
     view_btn.click(view_history, inputs=history_dropdown, outputs=history_text)
     refresh_debug_btn.click(view_debug_logs, outputs=debug_output)
-
-demo.launch()
+tools = Tools("kenneth85/llama-3-taiwan:8b-instruct-dpo")
+demo.launch(share=True)
