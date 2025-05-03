@@ -38,3 +38,4 @@ elasticsearch-*/
 .DS_Store
 Thumbs.db
 .ENV
+.env

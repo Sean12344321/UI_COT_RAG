@@ -60,7 +60,10 @@ def get_case_type(sim_input: str) -> str:
 # 主函式：根據模擬輸入，回傳清洗後的描述（包含原被告姓名、是否為未成年、是否為受僱人、是否由動物造成）
 def generate_filter(sim_input: str) -> str:
     match = re.search(r'一、(.*?)二、(.*?)三、(.*)', sim_input, re.S)
-    user_input = match.group(1).strip()
+    if match:
+        user_input = match.group(1).strip()
+    else:
+        raise ValueError(f"未能從輸入中擷取 case 類型內容，輸入為：{sim_input}")
     filted=get_people(user_input)+"\n"+get_187(user_input)+"\n"+get_188(user_input)+"\n"+get_190(user_input)+"\n"
     return filted
 # 判斷是否為未成年人 (§187)

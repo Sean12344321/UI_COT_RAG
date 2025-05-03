@@ -496,10 +496,10 @@ def main():
         print(f"\n執行時間: {hours}h {minutes}m {seconds}s")
 
 
-def retrieval(user_query):
+def retrieval(user_query,top_k):
     retrieval_system = RetrievalSystem()
     search_type = "fact" #full or fact
-    k = 5
+    k = top_k
     case_type, _ = get_case_type(user_query)
     print(f"案件類型: {case_type}")
     print(f"\n在 Elasticsearch 中搜索 '{search_type}' 類型的 Top {k} 個文檔...")
