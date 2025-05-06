@@ -18,13 +18,14 @@ def generate_lawsheet(input_data):
     userinput = input("請選擇使用的RAG資料庫(1: KG_RAG, 2: chunk_RAG): ")
     if userinput == "1":
         # 使用 KG_RAG
-        references = query_simulation(input_data)
+        references = query_simulation(input_data, 3)
     elif userinput == "2":
         # 使用 chunk_RAG
-        references = retrieval(input_data)
+        references = retrieval(input_data, 3)
     else:
         print("請輸入正確的選項(1或2)")
         return None
+    print(references)
     facts = []
     case_ids = []
     compensations = []

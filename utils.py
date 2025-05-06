@@ -4,10 +4,10 @@ os.chdir(os.path.dirname(__file__))
 sys.path.append(os.path.join(os.path.dirname(__file__), "chunk_RAG"))
 sys.path.append(os.path.join(os.path.dirname(__file__), "KG_RAG_B"))
 from chunk_RAG.ts_retrieval_system import RetrievalSystem
-retrieval_system = RetrievalSystem()
 class Tools:
     def __init__(self, model):
         self.model = model
+        self.retrieval_system = RetrievalSystem()   
     def llm_generate_response(self, input_data):
         """
         use LLM to generate response
@@ -103,12 +103,12 @@ class Tools:
         return self.llm_generate_response(fact_input)
     
     def generate_laws(self, case_ids, threshold):
-        laws = retrieval_system.get_laws_from_neo4j(case_ids)
-        law_counts = retrieval_system.count_law_occurrences(laws)
-        filtered_law_numbers = retrieval_system.filter_laws_by_occurrence(law_counts, threshold)
+        laws = self.retrieval_system.get_laws_from_neo4j(case_ids)
+        law_counts = self.retrieval_system.count_law_occurrences(laws)
+        filtered_law_numbers = self.retrieval_system.filter_laws_by_occurrence(law_counts, threshold)
         law_contents = []
         if filtered_law_numbers:
-            law_contents = retrieval_system.get_law_contents(filtered_law_numbers)
+            law_contents = self.retrieval_system.get_law_contents(filtered_law_numbers)
         law_section = "二、按「"
         if law_contents:
             for i, law in enumerate(law_contents):
@@ -143,7 +143,7 @@ class Tools:
         Returns:
             str: formatted string for UI
         """
-        return result_data, '', ''
+        return result_data, '', '', '', ''
     
     def show_reference_to_UI(self, reference_data):
         """
@@ -154,8 +154,18 @@ class Tools:
         Returns:
             str: formatted string for UI
         """
-        return '', reference_data, ''
+        return '', reference_data, '', '', ''
     
+    def show_summary_to_UI(self, summary_data):
+        """
+        generate to UI
+        Args:
+            summary_data (str): generated result
+        Returns:
+            str: formatted string for UI
+        """
+        return '', '', summary_data, '', ''
+
     def show_debug_to_UI(self, debug_data):
         """
         generate to UI
@@ -164,4 +174,30 @@ class Tools:
         Returns:
             str: formatted string for UI
         """
-        return '', '', debug_data
+        return '', '', '', debug_data, ''
+    
+    def show_final_judge_to_UI(self, final_judge_data):
+        """
+        generate to UI
+        Args:
+            final_judge_data (str): final judge data
+        Returns:
+            str: formatted string for UI
+        """
+        return '','', '', '', final_judge_data
+    def wrap_debug_section(self, content, color="#f9f9f9", border="#ccc", font_color="#000"):
+        """
+        Wrap debug section with HTML
+        Args:
+            content (str): Content of the section
+            color (str): Background color of the section
+            border (str): Border color of the section
+            font_color (str): Font color of the section
+        Returns:
+            str: HTML formatted string  
+        """
+        return f"""<div style="background-color:{color}; color:{font_color}; border:1px solid {border}; padding:8px; border-radius:5px;">{content}</div>"""
+    def remove_blank_lines(self, text):
+        lines = text.splitlines()
+        non_blank_lines = [line for line in lines if line.strip() != '']
+        return '\n'.join(non_blank_lines)
