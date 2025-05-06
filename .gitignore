@@ -38,4 +38,4 @@ elasticsearch-*/
 .DS_Store
 Thumbs.db
 .ENV
-.env
+.env.gradio/
