@@ -170,11 +170,16 @@ def generate_fact_statement(input, reference_facts, passed_tools):
     tools = passed_tools
     size = len(reference_facts)
     cnt = 0 #生成次數
+    result = ""
     while True:
-        if cnt % 5 == 0:
-            print("參考輸出:\n", reference_facts[int(cnt / 5)%size])
+        if cnt == 10:
+            print("賠償項目嘗試超過 10 次仍無法通過檢查，直接繼續生成\n")
+            yield tools.show_final_judge_to_UI('<span style="color:red;">賠償項目嘗試超過 10 次仍無法通過檢查，直接繼續生成\n</span>')
+            break
+        if cnt % 3 == 0:
+            print("參考輸出:\n", reference_facts[int(cnt / 3)%size])
             # yield tools.show_debug_to_UI(f"參考輸出:\n, {reference_facts[int(cnt / 5)%size]}")
-        processed_truth_prompt = f"\n範例格式:{reference_facts[int(cnt / 5)%size]}" + truth_prompt
+        processed_truth_prompt = f"\n範例格式:{reference_facts[int(cnt / 3)%size]}" + truth_prompt
         input = tools.remove_input_specific_part(input)
         result = tools.combine_prompt_generate_response(input, processed_truth_prompt).strip('\n')
         cnt += 1

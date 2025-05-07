@@ -28,7 +28,7 @@ def generate_lawsheet(input_data, tools):
     else:
         print("請輸入正確的選項(1或2)")
         return None
-    print(references)
+    # print(references)
     facts = []
     case_ids = []
     compensations = []

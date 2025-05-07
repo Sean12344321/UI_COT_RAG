@@ -56,10 +56,6 @@ cols = ["J", "K"]
 
 for tool, col in zip(tools, cols):
     for i, item in enumerate(df["模擬輸入內容"].tolist()):
-        output = generate_lawsheet(item, tool)  # 生成單個輸出
-        write_sheets_single(output, i + 1, f"Sheet1!{col}:{col}")  # 寫入對應欄
-
-last_result = deque(generate_lawsheet(tmp_prompt, tools), maxlen=1)[0]
-
-# 拆開使用
-part, reference, summary, log, final_judge = last_result
+        output = deque(generate_lawsheet(item, tool), maxlen=1)[0]  # 生成單個輸出
+        part, reference, summary, log, final_judge = output
+        write_sheets_single(part.replace('<br>', '\n'), i + 1, f"Sheet1!{col}:{col}")  # 寫入對應欄

@@ -307,12 +307,12 @@ def compensate_iteration(user_input, references):
                 yield tools.show_final_judge_to_UI('<span style="color:red;">賠償項目嘗試超過 7 次仍無法通過檢查，直接繼續生成\n</span>')
                 break
             response = tools.combine_prompt_generate_response(user_input, input_compensate_prompt).strip("=")
-            first_sentence = response.strip().split('\n')[0].strip()    
+            first_sentence = response.strip().split('\n')[0].strip()
             other_sentences = '\n'.join(response.strip().split('\n')[1:]).strip()
             if len(other_sentences) and other_sentences[0] == '（' and other_sentences[-1] == '）':
                 other_sentences = other_sentences[1:-1].strip()
                 response = first_sentence + '\n' + other_sentences
-            if first_sentence[0] != '（' or first_sentence[-1] != '元':
+            if len(other_sentences) == 0 or len(first_sentence) == 0 or first_sentence[0] != '（' or first_sentence[-1] != '元':
                 print(response)
                 print("格式錯誤，重新生成")
                 print("=" * 50)
@@ -357,7 +357,7 @@ def compensate_iteration(user_input, references):
                     amount2 = get_exact_amount(money_response_2)
                     money_block = f"輸入金額推理過程:<br>{tools.remove_blank_lines(money_response_1)}<br>輸出金額推理過程:<br>{tools.remove_blank_lines(money_response_2)}<br>"
                     print("金額檢查:\n", money_response_1, "\n", money_response_2)
-                    if not amount1.isdigit() or not amount2.isdigit():
+                    if isinstance(amount1, str) and isinstance(amount2, str) and (not amount1.isdigit() or not amount2.isdigit()):
                         print("金額格式錯誤，重新生成")
                         money_block += "金額格式錯誤，重新生成"
                         money_response = "reject"
@@ -405,7 +405,7 @@ def compensate_iteration(user_input, references):
         yield tools.show_result_to_UI(response)
         result += response + "\n\n"
     # 生成總結句
-    processed_summary = summary + f"\n{labels[len(compensate_items)]}總計賠償金額: {total_money}元"
+    processed_summary = summary + f"{labels[len(compensate_items)]}總計賠償金額: {total_money}元"
     print(processed_summary)
     print("=" * 50)
     # yield tools.show_debug_to_UI(f"賠償總結:\n{processed_summary}\n" + "=" * 50)
@@ -419,7 +419,9 @@ def compensate_iteration(user_input, references):
 【請完成以下總結句】
 請注意，總結句中的總金額應與最後一筆賠償項目「總計賠償金額」的金額一致（此例為{total_money}元），且應與前述各項賠償名稱與金額對應一致，僅進行格式統整，不需自行加減金額。
 {labels[len(compensate_items)]}"""
+    sum_response = ""
     print(processed_compensation_sum_prompt)
+    retry_count = 0
     while True:
         if retry_count >= 7:
             print("賠償項目嘗試超過 7 次仍無法通過檢查，直接繼續生成。\n")
@@ -448,7 +450,7 @@ def compensate_iteration(user_input, references):
             amount2 = get_exact_amount(money_response_2)
             print("金額檢查:\n", money_response_1, "\n", money_response_2)
             money_block = f"輸入金額推理過程:<br>{tools.remove_blank_lines(money_response_1)}<br>輸出金額推理過程:<br>{tools.remove_blank_lines(money_response_2)}<br>"
-            if not amount1.isdigit() or not amount2.isdigit():
+            if isinstance(amount1, str) and isinstance(amount2, str) and (not amount1.isdigit() or not amount2.isdigit()):
                 print("金額格式錯誤，重新生成")
                 money_block += "金額格式錯誤，重新生成"
                 money_response = "reject"
