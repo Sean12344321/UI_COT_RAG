@@ -214,7 +214,7 @@ def generate_summary(input, final = False):
     if final == True:
         while time < 5:
             time += 1
-            abstract = tools.combine_prompt_generate_response(input, final_amount_summary)
+            abstract = tools.combine_prompt_generate_response(input, final_amount_summary).replace("=", "")
             matches = re.findall(r"\[(總賠償金額)\]:\s*(.*)", abstract)
             # 轉換為字典
             info_dict = {k: v for k, v in matches}
