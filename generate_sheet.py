@@ -4,7 +4,9 @@ from googleapiclient.discovery import build
 from dotenv import load_dotenv
 import pandas as pd
 from ollama_rag import generate_lawsheet
-from test import *
+from utils import Tools
+from collections import deque
+
 load_dotenv()
 
 # Google Sheets API 配置
@@ -46,8 +48,18 @@ def write_sheets_single(output, row_index, range_base):
         body=body
     ).execute()
     print(f"Row {row_index + 1} updated: {output}")
-
 # 逐行生成並即時寫入
-for i, item in enumerate(df["模擬輸入內容"].tolist()[:]):
-    output = generate_lawsheet(item)  # 生成單個輸出
-    write_sheets_single(output, i+1, "Sheet1!E:E")  # 即時寫入該行
+tool1 = Tools("kenneth85/llama-3-taiwan:8b-instruct-dpo")
+tool2 = Tools("gemma3:27b")
+tools = [tool1, tool2]
+cols = ["J", "K"]
+
+for tool, col in zip(tools, cols):
+    for i, item in enumerate(df["模擬輸入內容"].tolist()):
+        output = generate_lawsheet(item, tool)  # 生成單個輸出
+        write_sheets_single(output, i + 1, f"Sheet1!{col}:{col}")  # 寫入對應欄
+
+last_result = deque(generate_lawsheet(tmp_prompt, tools), maxlen=1)[0]
+
+# 拆開使用
+part, reference, summary, log, final_judge = last_result

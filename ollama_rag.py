@@ -3,6 +3,7 @@ import os, sys, time
 from generate_compensate import generate_compensate
 from generate_truth import generate_fact_statement
 from utils import Tools
+from collections import deque
 os.chdir(os.path.dirname(__file__))
 # 將 KG_RAG 目錄添加到 sys.path
 sys.path.append(os.path.join(os.path.dirname(__file__), "KG_RAG_B"))
@@ -13,18 +14,21 @@ df = pd.read_csv('dataset.csv')
 df2 = pd.read_csv('dataset(no_law).csv')
 inputs = df["模擬輸入內容"].tolist()[:-2]
 template_output = df2["gpt-4o-mini-2024-07-18\n3000筆"].tolist()
-def generate_lawsheet(input_data):
+def generate_lawsheet(input_data, tools):
     """處理單個生成請求並輸出結果"""
-    userinput = input("請選擇使用的RAG資料庫(1: KG_RAG, 2: chunk_RAG): ")
+    # userinput = input("請選擇使用的RAG資料庫(1: KG_RAG, 2: chunk_RAG): ")
+    userinput = "1"
     if userinput == "1":
         # 使用 KG_RAG
-        references = query_simulation(input_data)
+        references = query_simulation(input_data, 3)
     elif userinput == "2":
         # 使用 chunk_RAG
-        references = retrieval(input_data)
+        print("chunk_RAG")
+        references = retrieval(input_data, 3)
     else:
         print("請輸入正確的選項(1或2)")
         return None
+    print(references)
     facts = []
     case_ids = []
     compensations = []
@@ -75,11 +79,16 @@ tmp_prompt = """一、事故發生緣由:
 if __name__ == "__main__":
     start_time = time.time()
     tools = Tools("kenneth85/llama-3-taiwan:8b-instruct-dpo")
-    for part, ref, audit in generate_lawsheet(tmp_prompt):
-        # print(f"生成的內容:\n{part}")
-        # print(f"參考資料:\n{ref}")
-        # print(f"推理紀錄:\n{audit}")
-        pass
+    last_result = deque(generate_lawsheet(tmp_prompt, tools), maxlen=1)[0]
+    part, reference, summary, log, final_judge = last_result
+    # for part, reference, summary, log, final_judge in generate_lawsheet(tmp_prompt, tools):
+    #     print(f"生成的內容:\n{part}")
+    #     print(f"參考資料:\n{reference}")
+    #     print(f"推理紀錄:\n{summary}")
+    #     print(f"最終判斷:\n{log}")
+    #     print(f"最終結果:\n{final_judge}")
+    print("=" * 50)
+    print("生成的內容:\n", part)
     end_time = time.time()
     elapsed_time = end_time - start_time
     hours = int(elapsed_time // 3600)

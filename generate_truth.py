@@ -45,7 +45,7 @@ time_truth_check = """
 步驟四：比對時間（上午/下午/晚上、小時與分鐘），若換算後的數字相同，即視為一致。
 步驟五：只有當所有項目符合上述條件時，才輸出「accept」。
 
-請依照以下格式生成輸出：
+請依照以下格式輸出：
 ===========================
 [推理過程]:
 年份:
@@ -70,12 +70,17 @@ user_input = """一、事故發生緣由:
 rag_references = ['一、緣被告明知其駕駛執照經吊扣，不得駕駛自用小貨車行駛於道路，仍於102年5月31日上午10時15分許，駕駛車號00-0000號自用小貨車，沿雲林縣斗南鎮臺一線由北往南方向行駛，途經同路段南向239.2公里處時，其原應注意汽車行駛變換車道時，讓直行車先行，並注意安全距離。依當時天候晴、日間自然光線、柏油路面乾燥無缺陷、無障礙物，並無不能注意之情事，竟疏於注意及此，適有原告騎乘000-000號普通重型機車同向行駛於被告後方機車道上，致2車發生擦撞，造成原告受傷。', '一、緣被告於民國108年5月31日8時45分許，駕駛其所有車牌號碼000-0000號自小客貨車，沿彰化縣彰化市公園路1段由北往南方向行駛，行經該路段412號前之無號誌交岔路口，欲右轉公園路1段往西方向行駛時，疏未注意車前狀況及讓直行車先行，貿然右轉，適原告騎乘車牌號碼000-000號普通重型機車，沿彰化市公園路1段由東往西方向直行至該路口，兩車因而發生碰撞，原告人車倒地。', '一、緣被告於民國107年7月30日下午,駕駛其所有車牌號碼000-00號自用小貨車,沿彰化縣芳苑鄉海埔路往南行駛,嗣於同日17時5分許,行經海埔路與功湖路無號誌交岔路口時,疏未注意車前狀況,讓直行車先行,竟貿然左轉駛往功湖路,適原告騎乘車牌號碼000-000號普通重型機車,沿功湖路往西方向直行,兩車於上開路口發生碰撞,致原告人車倒地,並受有頭部外傷、左頸部挫傷、左腕擦傷及雙膝挫傷等傷害。', '一、緣被告於民國107年9月7日下午16時50分許，駕駛000-0000號營業大貨車沿臺南市○○區○道○號公路由北向南行駛於道路中線車道，至該路段南向328公里700公尺處，本應注意變換車道時應讓直行車先行，並注意安全距離。當時天候雖為陰天，惟日間有自然光線，柏油路面乾燥、無缺陷、無障礙物、視距良好，並無不能注意之情形，依被告駕駛能力亦應能注意，竟貿然向右變換至外側車道，致擦撞同向平行行駛於外側車道、由原告駕駛之00-0000號自小客車左前方，致該車受撞後衝撞右側路旁護欄反轉逆向才停止。', '一、緣被告於民國108年5月31日7時58分許，駕駛車牌號碼000-0000號自用小客貨車，沿屏東縣恆春鎮中正路239巷39弄由北往南方向行駛，行經該巷與同巷39弄時，被告原應注意轉彎車應讓直行車先行，竟疏未注意而貿然右轉，碰撞由原告騎乘車牌號碼為000-0000號普通重型機車。且當時路口正前方設有反射鏡，該反射鏡反射範圍即為被告左側之原告直行而來之道路情況，顯係特別設置供被告行向之車輛於駛入該路口欲右轉時，注意左側原告行向之來車使用，被告依其行向駛至該路口欲右轉時，客觀上並無不能注意左側有原告來車之情事。']
 tools = None
 
-def generate_simple_fact_statement(input, reference_fact):
+def generate_simple_fact_statement(input, reference_fact, tools):
     """"直接生成, 沒有用chain of though以及summary, 只有結合Input跟rag的reference"""
     global truth_prompt
     truth_prompt = f"\n範例格式:{reference_fact}" + truth_prompt
     input = tools.remove_input_specific_part(input)
-    return "一、" + tools.combine_prompt_generate_response(input, truth_prompt)
+    result = tools.combine_prompt_generate_response(input, truth_prompt).replace('\n', '')
+    if "一、" not in result:
+        result = "一、" + result    
+    print("輸出:\n", result)
+    yield result
+    return result
 
 def generate_summary(input):
     info_dict = {}
@@ -83,7 +88,7 @@ def generate_summary(input):
     while time < 5:#生成至多5次
         time += 1
         abstract = tools.combine_prompt_generate_response(input, truth_summary)
-        matches = re.findall(r"\[(案發時間|案發地點)\]:\s*(.*)", abstract)
+        matches = re.findall(r"\[(案發地點|案發時間)\]:\s*(.*)", abstract)
         # 轉換為字典
         info_dict = {k: v for k, v in matches}
         # 如果資訊不構成二個欄位則重新生成
@@ -91,40 +96,60 @@ def generate_summary(input):
             break
     if time >= 5:
         return False
-    return info_dict
+    ordered_keys = ["案發地點", "案發時間"]
+    reordered = {key: info_dict[key] for key in ordered_keys if key in info_dict}
+
+    return reordered
 
 def check_input_output_content(input, output):
     # 檢查輸入和輸出內容是否一致
     global address_truth_check
     global time_truth_check
     print("輸出:\n", output)
-    yield tools.show_debug_to_UI(f"輸出:\n{output}")    
+    # yield tools.show_debug_to_UI(f"輸出:\n{output}")    
     input_abs = generate_summary(input)
     output_abs = generate_summary(output)
     if input_abs == False or output_abs == False:
         return False
-    print("輸入摘要:\n", input_abs)
-    yield tools.show_debug_to_UI(f"輸入摘要:\n{input_abs}")
-    print("輸出摘要:\n", output_abs)
-    yield tools.show_debug_to_UI(f"輸出摘要:\n{output_abs}")
+    
+    summary_process_text = ""
+    print("輸入摘要:", input_abs)
+    summary_process_text += f"輸入摘要:{input_abs}<br>"
+    print("輸出摘要:", output_abs)
+    summary_process_text += f"輸出摘要:{output_abs}<br>"
+    yield tools.show_summary_to_UI(summary_process_text)
+
+    judge_process_text = ""
+
     if input_abs["案發地點"] != output_abs["案發地點"]:
-        processed_address_truth_check = f"[{input_abs["案發地點"]}]，[{output_abs["案發地點"]}]" + address_truth_check
+        processed_address_truth_check = f"[{input_abs['案發地點']}]，[{output_abs['案發地點']}]" + address_truth_check
         address_response = tools.llm_generate_response(processed_address_truth_check).replace('=', '')
         print("地址檢查:\n", address_response)
-        yield tools.show_debug_to_UI(f"地址檢查:\n{address_response}")
+
+        address_block = "地址檢查<br>" + tools.wrap_debug_section(tools.remove_blank_lines(address_response), color="#fff8f0", border="#f0d9b5")
+        judge_process_text += address_block
     else:
         address_response = "accept"
         print("輸入和輸出地址一致，無需檢查")
-        yield tools.show_debug_to_UI("輸入和輸出地址一致，無需檢查")
+        address_block = "地址檢查<br>" + tools.wrap_debug_section("輸入和輸出地址一致，無需檢查", color="#f0fff4", border="#b5e3ca")
+        judge_process_text += address_block
+
     if input_abs["案發時間"] != output_abs["案發時間"]:
-        processed_time_truth_check = f"[{input_abs["案發時間"]}]，[{output_abs["案發時間"]}]" + time_truth_check
+        processed_time_truth_check = f"[{input_abs['案發時間']}]，[{output_abs['案發時間']}]" + time_truth_check
         time_response = tools.llm_generate_response(processed_time_truth_check).replace('=', '')
         print("時間檢查:\n", time_response)
-        yield tools.show_debug_to_UI(f"時間檢查:\n{time_response}")
+
+        time_block = "時間檢查<br>" + tools.wrap_debug_section(tools.remove_blank_lines(time_response), color="#f0f8ff", border="#aacfe6")
+        judge_process_text += time_block
     else:
         time_response = "accept"
         print("輸入和輸出時間一致，無需檢查")
-        yield tools.show_debug_to_UI("輸入和輸出時間一致，無需檢查")
+
+        time_block = "時間檢查<br>" + tools.wrap_debug_section("輸入和輸出時間一致，無需檢查", color="#f0fff4", border="#b5e3ca")
+        judge_process_text += time_block
+
+    yield tools.show_debug_to_UI(judge_process_text)
+
     address_last_line = address_response.strip().split('\n')[-1].lower()
     time_last_line = time_response.strip().split('\n')[-1].lower()
     
@@ -148,27 +173,27 @@ def generate_fact_statement(input, reference_facts, passed_tools):
     while True:
         if cnt % 5 == 0:
             print("參考輸出:\n", reference_facts[int(cnt / 5)%size])
-            yield tools.show_debug_to_UI(f"參考輸出:\n, {reference_facts[int(cnt / 5)%size]}")
+            # yield tools.show_debug_to_UI(f"參考輸出:\n, {reference_facts[int(cnt / 5)%size]}")
         processed_truth_prompt = f"\n範例格式:{reference_facts[int(cnt / 5)%size]}" + truth_prompt
         input = tools.remove_input_specific_part(input)
-        result = tools.combine_prompt_generate_response(input, processed_truth_prompt)
+        result = tools.combine_prompt_generate_response(input, processed_truth_prompt).strip('\n')
         cnt += 1
         #避免提前做結尾或者分段
         if "綜上所述" in result or '\n' in result or "二、" in result or "三、" in result or ("民法" in result and "民法" not in input):
             print("輸出:\n", result, "\n生成格式不符合要求，重新生成")
-            yield tools.show_debug_to_UI(f"輸出:\n{result}\n生成格式不符合要求，重新生成")
+            # yield tools.show_debug_to_UI(f"輸出:\n{result}\n生成格式不符合要求，重新生成")
         else:
             check_result = yield from check_input_output_content(input, result)
             print("check_result:", check_result)
             if check_result == False:
                 print("判斷輸入和輸出的時間地點或內容不一致，重新生成")
-                yield tools.show_debug_to_UI("判斷輸入和輸出的時間地點或內容不一致，重新生成")
+                yield tools.show_final_judge_to_UI('<span style="color:red;">最終判決結果: Reject</span>')
             else:
                 print("判斷輸入和輸出的時間地點或內容一致，生成完成")
-                yield tools.show_debug_to_UI("判斷輸入和輸出的時間地點或內容一致，生成完成")
+                yield tools.show_final_judge_to_UI('<span style="color:green;">最終判決結果: Accept</span>')
                 break
         print("=" * 50)
-        yield tools.show_debug_to_UI("=" * 50)
+        # yield tools.show_debug_to_UI("=" * 50)
     if "一、" not in result:
         result = "一、" + result
     yield tools.show_result_to_UI(result)
@@ -178,11 +203,10 @@ if __name__ == "__main__":
     start_time = time.time()   
     tools = Tools("kenneth85/llama-3-taiwan:8b-instruct-dpo")
     response = "" 
-    for part, reference, log in generate_fact_statement(user_input, rag_references, tools):
-        # print(f"生成的內容:\n{part}")
-        # print(f"參考資料:\n{reference}")
-        # print(f"推理紀錄:\n{log}")
+    for part, reference, summary, log, final_judge in generate_fact_statement(user_input, rag_references, tools):
         pass
+    # for part in generate_simple_fact_statement(user_input, rag_references, tools):
+    #     pass
     end_time = time.time()
     elapsed_time = end_time - start_time
     
