@@ -226,7 +226,7 @@ def generate_summary(input, final = False):
     else:
         while time < 5:#生成至多5次
             time += 1
-            abstract = tools.combine_prompt_generate_response(input, amount_summary)
+            abstract = tools.combine_prompt_generate_response(input, amount_summary).replace("=", "")
             matches = re.findall(r"\[(賠償項目|賠償金額)\]:\s*(.*)", abstract)
             # 轉換為字典
             info_dict = {k: v for k, v in matches}
