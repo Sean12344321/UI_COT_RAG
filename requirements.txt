@@ -8,6 +8,7 @@ langchain-core
 langchain-community
 langchain
 google-api-python-client
+google-auth
 chainlit
 openpyxl
 groq

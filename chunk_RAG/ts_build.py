@@ -22,7 +22,7 @@ class LegalRAGSystem:
         load_dotenv()
         self.embedding_model = EmbeddingModel()
         self.es_manager = ElasticsearchManager(
-            host="https://localhost:9200",
+            host="http://localhost:9202",
             username=os.getenv('ELASTIC_USER'),
             password=os.getenv('ELASTIC_PASSWORD')
         )

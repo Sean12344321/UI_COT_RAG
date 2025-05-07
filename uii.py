@@ -53,13 +53,15 @@ def generate_compensate(*args, **kwargs):
 
 def generate_lawsheet(input_data, rag_option="1", top_k=3, model_choice="kenneth85/llama-3-taiwan:8b-instruct-dpo"):
     tools = Tools(model_choice)
+    if rag_option == "段落切割":
+        rag_option = "1"
+    else: 
+        rag_option = "2"
     debug, facts, laws_id, compensations = [], [], [], []
     start_time = time.time()
     debug.append(f"[時間] {time.strftime('%Y-%m-%d %H:%M:%S')} 啟動起訴狀生成")
-
     references = query_simulation(input_data, top_k) if rag_option == "1" else retrieval(input_data,top_k)
     debug.append("[RAG] 使用 {} 查詢成功".format("KG_RAG" if rag_option == "1" else "chunk_RAG"))
-
     data = tools.split_user_input(input_data)
 
     for i, ref in enumerate(references):
