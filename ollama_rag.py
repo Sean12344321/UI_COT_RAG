@@ -4,6 +4,7 @@ from generate_compensate import generate_compensate
 from generate_truth import generate_fact_statement
 from utils import Tools
 from collections import deque
+from collections import deque
 os.chdir(os.path.dirname(__file__))
 # 將 KG_RAG 目錄添加到 sys.path
 sys.path.append(os.path.join(os.path.dirname(__file__), "KG_RAG_B"))
@@ -18,11 +19,16 @@ def generate_lawsheet(input_data, tools):
     """處理單個生成請求並輸出結果"""
     # userinput = input("請選擇使用的RAG資料庫(1: KG_RAG, 2: chunk_RAG): ")
     userinput = "1"
+    # userinput = input("請選擇使用的RAG資料庫(1: KG_RAG, 2: chunk_RAG): ")
+    userinput = "1"
     if userinput == "1":
         # 使用 KG_RAG
         references = query_simulation(input_data, 3)
+        references = query_simulation(input_data, 3)
     elif userinput == "2":
         # 使用 chunk_RAG
+        print("chunk_RAG")
+        references = retrieval(input_data, 3)
         print("chunk_RAG")
         references = retrieval(input_data, 3)
     else:
@@ -81,12 +87,6 @@ if __name__ == "__main__":
     tools = Tools("kenneth85/llama-3-taiwan:8b-instruct-dpo")
     last_result = deque(generate_lawsheet(tmp_prompt, tools), maxlen=1)[0]
     part, reference, summary, log, final_judge = last_result
-    # for part, reference, summary, log, final_judge in generate_lawsheet(tmp_prompt, tools):
-    #     print(f"生成的內容:\n{part}")
-    #     print(f"參考資料:\n{reference}")
-    #     print(f"推理紀錄:\n{summary}")
-    #     print(f"最終判斷:\n{log}")
-    #     print(f"最終結果:\n{final_judge}")
     print("=" * 50)
     print("生成的內容:\n", part)
     end_time = time.time()

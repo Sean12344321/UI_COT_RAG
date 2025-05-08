@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-# coding: utf-8
-
 import os, sys, time, tempfile, re
 import pandas as pd
 import torch, numpy as np
@@ -136,7 +133,8 @@ def generate_lawsheet(input_data, rag_option="1", top_k=3, model_choice="kenneth
     debug.append(f"[完成] 花費時間：{time.time() - start_time:.2f} 秒")
     debug_logs.append("<br>".join(debug + ["<br>========= 推理紀錄 ============<br>", log1, log2]))
 
-    return main_output, sim_str, debug_logs[-1]
+    return main_output, examples, debug_logs[-1]
+
 
 def export_pdf(content: str):
     try:
@@ -176,6 +174,36 @@ def populate_input(col_name, row_idx):
         except:
             return "資料行列無效"
     return "欄位尚未上傳或不存在"
+def handle_txt_upload(file):
+    if file is None:
+        return "請先上傳 TXT 檔案"
+    try:
+        with open(file.name, "r", encoding="utf-8") as f:
+            return f.read()
+    except Exception as e:
+        return f"無法讀取 TXT：{e}"
+    
+# 顯示目前的相似案例（1條）
+def display_similar_example(example_list, idx):
+    if not example_list:
+        return "無相似案例"
+    idx = max(0, min(idx, len(example_list) - 1))
+    q, a, sim = example_list[idx]
+    return f"""
+    <div style='background:#eef;padding:10px;color:#000'>
+        <b style='color:#2980b9'>範例 {idx+1}</b><br>
+        相似度: {sim:.4f}<br>
+        <b>輸入：</b>{q.strip().replace('\\n', '<br>')}<br>
+        <b>輸出：</b>{a.strip().replace('\\n', '<br>')}
+    </div>
+    """
+# 上一頁 / 下一頁按鈕 callback
+def update_example(example_list, idx, direction):
+    new_idx = max(0, min(idx + direction, len(example_list)-1))
+    return display_similar_example(example_list, new_idx), new_idx
+def store_similar_examples(input_text, top_k):
+        examples = get_similar_examples(input_text, top_k)
+        return examples, 0, display_similar_example(examples, 0)
 
 with gr.Blocks(css="""
 .highlight-output {
@@ -196,9 +224,9 @@ with gr.Blocks(css="""
         rag_selector = gr.Dropdown(choices=["段落切割", "語意切割"], label="選擇 RAG chunk", value="段落切割")
         model_selector = gr.Dropdown(choices=["kenneth85/llama-3-taiwan:8b-instruct-dpo", "gemma3:27b"], label="選擇 LLM 模型", value="kenneth85/llama-3-taiwan:8b-instruct-dpo")
         top_k_slider = gr.Slider(label="相似案例數量", minimum=1, maximum=10, step=1, value=3)
-
     with gr.Row():
         excel_upload = gr.File(label="上傳 Excel 檔案 (.xlsx)")
+        txt_upload = gr.File(label="上傳 TXT 檔案 (.txt)", file_types=[".txt"])
         col_dropdown = gr.Dropdown(label="選擇欄位", choices=[])
         row_slider = gr.Slider(label="選擇列 index", minimum=0, maximum=5000, step=1, value=0)
         inject_btn = gr.Button("匯入欄位內容")
@@ -210,8 +238,13 @@ with gr.Blocks(css="""
     simple_result_output = gr.HTML(elem_classes=["highlight-output"])
     gr.HTML("<h2 style='color:#d35400'>🔶 完整生成內容 (含推論)</h2>")
     result_output = gr.HTML(elem_classes=["highlight-output"])
-    gr.HTML("<h2 style='color:#2980b9'>📚 相似案例</h2>")
+    gr.HTML("<h2 style='color:#2980b9'>📚 相似案例（單頁顯示）</h2>")
     similar_output = gr.HTML()
+    with gr.Row():
+      prev_btn = gr.Button("⬅️ 上一筆")
+      next_btn = gr.Button("下一筆 ➡️")
+    similar_examples_state = gr.State([])   # 存所有例子
+    current_example_index = gr.State(0) 
     gr.HTML("<h2 style='color:#8e44ad'>🧠 COT推理紀錄</h2>")
     debug_output = gr.HTML()
     pdf_btn = gr.Button("下載 PDF")
@@ -220,10 +253,24 @@ with gr.Blocks(css="""
     view_btn = gr.Button("載入歷史紀錄")
     history_text = gr.Textbox(label="歷史紀錄內容")
 
-    generate_btn.click(generate_lawsheet, inputs=[user_input, rag_selector, top_k_slider, model_selector], outputs=[simple_result_output, result_output, similar_output, debug_output])
+    generate_btn.click(generate_lawsheet, 
+    inputs=[user_input, rag_selector, top_k_slider, model_selector], 
+    outputs=[simple_result_output, result_output, similar_examples_state, debug_output])
     generate_btn.click(update_history_dropdown, outputs=history_dropdown)
+    generate_btn.click(store_similar_examples,
+                   inputs=[user_input, top_k_slider],
+                   outputs=[similar_examples_state, current_example_index, similar_output])
+    prev_btn.click(fn=update_example,
+    inputs=[similar_examples_state, current_example_index, gr.State(-1)],
+    outputs=[similar_output, current_example_index])
+    next_btn.click(fn=update_example,
+    inputs=[similar_examples_state, current_example_index, gr.State(1)],
+    outputs=[similar_output, current_example_index])
     pdf_btn.click(export_pdf, inputs=result_output, outputs=pdf_file)
     view_btn.click(view_history, inputs=history_dropdown, outputs=history_text)
+    txt_upload.change(handle_txt_upload, inputs=txt_upload, outputs=user_input)
+    inject_btn.click(populate_input, inputs=[col_dropdown, row_slider], outputs=user_input)
+
 
 Tools("kenneth85/llama-3-taiwan:8b-instruct-dpo")
 demo.queue().launch(share=True)

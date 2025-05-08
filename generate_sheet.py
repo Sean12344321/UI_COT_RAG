@@ -7,6 +7,9 @@ from ollama_rag import generate_lawsheet
 from utils import Tools
 from collections import deque
 
+from utils import Tools
+from collections import deque
+
 load_dotenv()
 
 # Google Sheets API 配置
