@@ -166,7 +166,7 @@ def generate_lawsheet(input_data, rag_option="1", top_k=3, model_choice="kenneth
         reference_output += ref3
         third_part_cot += audit3
         third_part_cot += final_judge3 + ('<br><br>' if final_judge3 else '')
-        if "Accept" in final_judge3 or "無法通過檢查，直接繼續生成" in final_judge3:
+        if "Accept" in final_judge3 or "筆作為賠償項目" in final_judge3:
             item += 1
             cnt = 0
         log2 += summary3 + audit3 + final_judge3

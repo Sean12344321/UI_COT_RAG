@@ -25,6 +25,9 @@ class Tools:
                     },
                 ],
                 model=self.model,
+                # options={
+                #     'temperature': 0.5  # 看要不要加，加了比較穩定
+                # }
             )
             return response['message']['content']
         except Exception as e:
