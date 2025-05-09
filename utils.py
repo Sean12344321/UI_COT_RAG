@@ -134,7 +134,7 @@ class Tools:
         else:
             law_section += "NO LAW"
         return law_section
-    
+
     def show_result_to_UI(self, result_data):
         """
         generate to UI

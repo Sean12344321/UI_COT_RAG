@@ -3,6 +3,7 @@ from utils import Tools
 from KG_RAG_B.define_case_type import get_case_type
 from chunk_RAG.ts_define_case_type import get_case_type as chunk_get_case_type
 from chunk_RAG.ts_prompt import *
+from evaluate import load
 import re, time
 user_input = """
 一、事故發生緣由:
@@ -285,7 +286,21 @@ def generate_reference_array(references):
             part = labels[len(results)] + part.strip()
             results.append(part)
     return results
-
+def select_best_output_using_bert_score(input_text, outputs):
+    if len(outputs) == 0:
+        print("沒有可用的輸出")
+        return ""
+    bertscore = load("bertscore")
+    print(outputs)
+    results = bertscore.compute(
+        predictions=outputs,
+        references=[input_text] * len(outputs),  # repeat reference for each prediction
+        lang="chinese",
+        model_type="bert-base-chinese"
+    )
+    # 找出 F1 分數最高的輸出
+    best_index = results["f1"].index(max(results["f1"]))
+    return best_index
 
 def compensate_iteration(user_input, references):
     summary = generate_total_summary(user_input)
@@ -300,11 +315,23 @@ def compensate_iteration(user_input, references):
 ==============================="""
         # 生成賠償項目
         retry_count = 0
+        start_time = time.time()
+        history_compensates = []
         input_compensate_prompt = compensate_prompt + f"\n\n生成格式:\n{output}"
         while True:
-            if retry_count >= 7:
-                print("賠償項目嘗試超過 7 次仍無法通過檢查，直接繼續生成\n")
-                yield tools.show_final_judge_to_UI('<span style="color:red;">賠償項目嘗試超過 7 次仍無法通過檢查，直接繼續生成\n</span>')
+            if time.time() - start_time > 120:
+                print(f"賠償項目{i+1}生成超過 120 秒，從過去{len(history_compensates)}次輸出中選擇最好的一個\n")
+                yield tools.show_final_judge_to_UI(f'<span style="color:#4287f5;">賠償項目{i+1}生成超過 120 秒，從過去{len(history_compensates)}次輸出中選擇最好的一個</span>')
+                final_index = select_best_output_using_bert_score(user_input, history_compensates)
+                yield tools.show_final_judge_to_UI(f'<span style="color:#4287f5;">選擇第{final_index+1}筆作為賠償項目{i+1}生成內容</span>')
+                response = history_compensates[final_index]
+                break
+            if retry_count >= 3:
+                print(f"賠償項目{i+1}嘗試生成3次仍無法通過檢查，從過去3次輸出中選擇最好的一個\n")
+                yield tools.show_final_judge_to_UI(f'<span style="color:#4287f5;">賠償項目{i+1}嘗試生成3次仍無法通過檢查，從過去3次輸出中選擇最好的一個"</span>')
+                final_index = select_best_output_using_bert_score(user_input, history_compensates)
+                yield tools.show_final_judge_to_UI(f'<span style="color:#4287f5;">選擇第{final_index+1}筆作為賠償項目{i+1}生成內容</span>')
+                response = history_compensates[final_index]
                 break
             response = tools.combine_prompt_generate_response(user_input, input_compensate_prompt).strip("=")
             first_sentence = response.strip().split('\n')[0].strip()
@@ -319,19 +346,19 @@ def compensate_iteration(user_input, references):
                 # yield tools.show_debug_to_UI(f"{response}\n格式錯誤，重新生成\n" + "=" * 50)
             else:
                 # 提取賠償項目以及金額
-                print(other_sentences)
-                print("=" * 50)
                 summary_process_text = ""
                 input_abs = generate_summary(item, final=False)
                 output_abs = generate_summary(other_sentences, final=False)
                 if input_abs == False or output_abs == False:
                     print("金額格式錯誤，重新生成")
-                    # yield tools.show_final_judge_to_UI('<span style="color:red;"金額格式錯誤，重新生成</span>')
+                    # yield tools.show_final_judge_to_UI('<span style="color:#db272d;"金額格式錯誤，重新生成</span>')
                     continue
+                print("輸出: ", other_sentences)
+                summary_process_text += f"輸出: {other_sentences}<br><br>"
                 print("輸入摘要:", input_abs)
-                summary_process_text += f"輸入摘要:{input_abs}<br>"
+                summary_process_text += f"輸入摘要:{input_abs}<br><br>"
                 print("輸出摘要:", output_abs)
-                summary_process_text += f"輸出摘要:{output_abs}<br>"
+                summary_process_text += f"輸出摘要:{output_abs}<br><br>"
                 yield tools.show_summary_to_UI(summary_process_text)
 
                 judge_process_text = ""
@@ -341,13 +368,13 @@ def compensate_iteration(user_input, references):
                     item_response = tools.llm_generate_response(processed_item_compensate_check).replace('=', '')
                     print("賠償項目檢查:\n", item_response)
 
-                    item_block = "賠償項目檢查<br>" + tools.wrap_debug_section(tools.remove_blank_lines(item_response), color="#fff8f0", border="#f0d9b5")
+                    item_block = "賠償項目檢查<br>" + tools.wrap_debug_section(tools.remove_blank_lines(item_response), color="#d0c5bb", border="#d0c5bb")
                     judge_process_text += item_block
                 else:
                     item_response = "accept"
                     print("輸入和輸出賠償項目一致，無需檢查")
 
-                    item_block = "賠償項目檢查<br>" + tools.wrap_debug_section("輸入和輸出賠償項目一致，無需檢查", color="#f0fff4", border="#b5e3ca")
+                    item_block = "賠償項目檢查<br>" + tools.wrap_debug_section("輸入和輸出賠償項目一致，無需檢查", color="#d0c5bb", border="#d0c5bb")
                     judge_process_text += item_block
 
                 money_response_1 = tools.combine_prompt_generate_response(input_abs["賠償金額"], money_to_number_prompt).replace('=', '')
@@ -369,10 +396,10 @@ def compensate_iteration(user_input, references):
                         print("金額不同，重新生成")
                         money_block += "金額不同，重新生成"
                         money_response = "reject"
-                    judge_process_text += "賠償金額檢查<br>" + tools.wrap_debug_section(money_block, color="#fff8f0", border="#f0d9b5")
+                    judge_process_text += "賠償金額檢查<br>" + tools.wrap_debug_section(money_block, color="#b3d6c2", border="#b3d6c2")
                 else:
                     print("輸入和輸出金額一致，無需檢查")
-                    money_block = "賠償金額檢查<br>" + tools.wrap_debug_section("輸入和輸出金額一致，無需檢查", color="#f0fff4", border="#b5e3ca")
+                    money_block = "賠償金額檢查<br>" + tools.wrap_debug_section("輸入和輸出金額一致，無需檢查", color="#b3d6c2", border="#b3d6c2")
                     money_response = "accept"
                     judge_process_text += money_block
                 yield tools.show_debug_to_UI(judge_process_text)
@@ -385,13 +412,14 @@ def compensate_iteration(user_input, references):
                     return "reject" in text or "拒絕" in text
                 
                 if contains_accept(item_last_line) and contains_accept(money_last_line) and not contains_reject(item_last_line) and not contains_reject(money_last_line):
-                    yield tools.show_final_judge_to_UI('<span style="color:green;">最終判決結果: Accept</span>')
+                    yield tools.show_final_judge_to_UI('<span style="color:#2fd119;">最終判決結果: Accept</span>')
                     break
                 elif contains_accept(item_response) and contains_accept(money_response) and not contains_reject(item_response) and not contains_reject(money_response):
-                    yield tools.show_final_judge_to_UI('<span style="color:green;">最終判決結果: Accept</span>')
+                    yield tools.show_final_judge_to_UI('<span style="color:#2fd119;">最終判決結果: Accept</span>')
                     break
                 else:
-                    yield tools.show_final_judge_to_UI('<span style="color:red;">最終判決結果: Reject</span>')
+                    yield tools.show_final_judge_to_UI('<span style="color:#db272d;">最終判決結果: Reject</span>')
+                    history_compensates.append(response)
                     retry_count += 1
 
         #去掉多餘的空白行
@@ -422,10 +450,22 @@ def compensate_iteration(user_input, references):
     sum_response = ""
     print(processed_compensation_sum_prompt)
     retry_count = 0
+    start_time = time.time()
+    history_compensates = []
     while True:
-        if retry_count >= 7:
-            print("賠償項目嘗試超過 7 次仍無法通過檢查，直接繼續生成。\n")
-            yield tools.show_final_judge_to_UI('<span style="color:red;">賠償項目嘗試超過 7 次仍無法通過檢查，直接繼續生成\n</span>')
+        if time.time() - start_time > 120: 
+            print(f"賠償項目{i+1}筆生成超過 120 秒，從過去{len(history_compensates)}次輸出中選擇最好的一個\n")
+            yield tools.show_final_judge_to_UI(f'<span style="color:#4287f5;">賠償項目{i+1}筆生成超過 120 秒，從過去{len(history_compensates)}次輸出中選擇最好的一個</span>')
+            final_index = select_best_output_using_bert_score(user_input, history_compensates)
+            yield tools.show_final_judge_to_UI(f'<span style="color:#4287f5;">選擇第{final_index+1}筆作為賠償項目{i+1}生成內容</span>')
+            sum_response = history_compensates[final_index]
+            break
+        if retry_count >= 3:
+            print(f"賠償項目{i+1}嘗試生成3次仍無法通過檢查，從過去3次輸出中選擇最好的一個\n")
+            yield tools.show_final_judge_to_UI(f'<span style="color:#4287f5;">賠償項目{i+1}嘗試生成3次仍無法通過檢查，從過去3次輸出中選擇最好的一個\n</span>')
+            final_index = select_best_output_using_bert_score(user_input, history_compensates)
+            yield tools.show_final_judge_to_UI(f'<span style="color:#4287f5;">選擇第{final_index+1}筆作為賠償項目{i+1}生成內容</span>')
+            sum_response = history_compensates[final_index]
             break
         summary_process_text = ""
         sum_response = tools.llm_generate_response(processed_compensation_sum_prompt)
@@ -435,12 +475,14 @@ def compensate_iteration(user_input, references):
         output_abs = generate_summary(sum_response, final=True)
         if input_abs == False or output_abs == False:
             print("金額格式錯誤，重新生成")
-            # yield tools.show_final_judge_to_UI('<span style="color:red;">金額格式錯誤，重新生成</span>')
+            # yield tools.show_final_judge_to_UI('<span style="color:#db272d;">金額格式錯誤，重新生成</span>')
             continue
+        print("輸出: ", sum_response)
+        summary_process_text += f"輸出: {sum_response}<br><br>"
         print("輸入摘要:", input_abs)
-        summary_process_text += f"輸入摘要:{input_abs}<br>"
+        summary_process_text += f"輸入摘要:{input_abs}<br><br>"
         print("輸出摘要:", output_abs)
-        summary_process_text += f"輸出摘要:{output_abs}<br>"
+        summary_process_text += f"輸出摘要:{output_abs}<br><br>"
         yield tools.show_summary_to_UI(summary_process_text)
         judge_process_text = ""
         money_response_1 = tools.combine_prompt_generate_response(input_abs["總賠償金額"], money_to_number_prompt).replace('=', '')
@@ -462,10 +504,10 @@ def compensate_iteration(user_input, references):
                 print("金額不同，重新生成")
                 money_block += "金額不同，重新生成"
                 money_response = "reject"
-            judge_process_text += "賠償金額檢查<br>" + tools.wrap_debug_section(money_block, color="#fff8f0", border="#f0d9b5")
+            judge_process_text += "賠償金額檢查<br>" + tools.wrap_debug_section(money_block, color="#d0c5bb", border="#d0c5bb")
         else:
             print("輸入和輸出金額一致，無需檢查")
-            money_block = "賠償金額檢查<br>" + tools.wrap_debug_section("輸入和輸出金額一致，無需檢查", color="#f0fff4", border="#b5e3ca")
+            money_block = "賠償金額檢查<br>" + tools.wrap_debug_section("輸入和輸出金額一致，無需檢查", color="#d0c5bb", border="#d0c5bb")
             money_response = "accept"
             judge_process_text += money_block
         yield tools.show_debug_to_UI(judge_process_text)
@@ -478,13 +520,14 @@ def compensate_iteration(user_input, references):
             return "reject" in text or "拒絕" in text
         
         if contains_accept(item_last_line) and contains_accept(money_last_line) and not contains_reject(item_last_line) and not contains_reject(money_last_line):
-            yield tools.show_final_judge_to_UI('<span style="color:green;">最終判決結果: Accept</span>')
+            yield tools.show_final_judge_to_UI('<span style="color:#2fd119;">最終判決結果: Accept</span>')
             break
         elif contains_accept(item_response) and contains_accept(money_response) and not contains_reject(item_response) and not contains_reject(money_response):
-            yield tools.show_final_judge_to_UI('<span style="color:green;">最終判決結果: Accept</span>')
+            yield tools.show_final_judge_to_UI('<span style="color:#2fd119;">最終判決結果: Accept</span>')
             break
         else:
-            yield tools.show_final_judge_to_UI('<span style="color:red;">最終判決結果: Reject</span>')
+            yield tools.show_final_judge_to_UI('<span style="color:#db272d;">最終判決結果: Reject</span>')
+            history_compensates.append(sum_response)
             retry_count += 1
         print("=" * 50)
     if len(sum_response) > 0 and sum_response[0] != '（':

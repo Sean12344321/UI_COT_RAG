@@ -1,5 +1,6 @@
 from utils import Tools
 import re, time
+from evaluate import load
 # 事實陳述摘要
 truth_summary = """請根據輸入資訊擷取關鍵資訊，並遵循以下格式輸出：
 ============================
@@ -58,12 +59,11 @@ time_truth_check = """
 ===========================
 """
 user_input = """一、事故發生緣由:
- 被告於民國000年0月00日下午5時許，駕駛車牌號碼0000-00號自用小客車（下稱A車），自基隆市中正區碧砂漁港駛出欲右轉往中正路方向行駛之際，於該址路口（下稱系爭地點）本應注意行駛在閃紅燈之支線道車應暫停讓幹線道車先行，以避免危險或交通事故之發生，而依當時天候及路況，並無不能注意之情事，竟疏未注意上情而貿然前行，此時原告甲父騎乘車牌號碼000-000號普通重型機車（下稱B車）附載原告甲及甲母行駛至系爭地點，雙方因而發生碰撞（下稱系爭事故），原告甲、甲父、甲母因此分別受有身體傷害及財物損失。
+ 被告於000年0月00日下午7時許，駕駛車號000-0000號自小貨車，沿雲林縣水林鄉海埔村雲157線（由北往南方向）行駛，行經雲林縣○○鄉○○村○000○○○○○道路○○號誌交岔路口時，疏未注意轉彎車應暫停讓直行車先行，即貿然左轉，適原告騎乘車號000-000號普通重型機車，沿雲林縣水林鄉雲157線（由南往北方向）行駛至該處時，見被告所駕駛之自小貨車突然左轉時閃避不及，原告所騎乘機車車頭與被告所駕駛自小貨車右側車身發生碰撞，原告因而人車倒地。
+ 按左轉彎時，應距交岔路口三十公尺前顯示方向燈或手勢，換入內側車道或左轉車道，行至交岔路口中心處左轉，並不得占用來車道搶先左轉；汽車行駛至無號誌之交岔路口，轉彎車應暫停讓直行車先行，道路交通安全規則第102條第1項第5、7款分別有明文。被告駕駛車輛，自應注意遵守上開交通規定，且當時天候為晴天，晨或暮光，路面乾燥無缺陷，無障礙物及視距良好，並無不能注意之情事，而被告駕車行經交岔路口時，卻疏未注意轉彎車應暫停讓直行車先行，因此被告應負過失侵權行為之責任。
  
  二、原告受傷情形:
- 原告甲父因系爭事故受有脾臟重度撕裂傷合併腹內出血及休克、左側第6至第9肋骨骨折、左小腿及左腳踝大面積傷口、左側肺挫傷併少量血胸等傷害。
- 原告甲母因系爭事故受有四肢及臉部多處挫傷及擦傷。
- 原告甲因系爭事故受有左膝挫傷、擦傷及左手第五掌骨閉鎖性骨折之傷害。
+ 原告因為此次交通事故受有左側脛骨遠端骨折、左側腓骨外踝骨折、左側腎臟撕裂、左下眼瞼及鼻淚管撕裂、舌部撕裂、左耳鼓膜破損、左側第4第5第6第7肋骨骨折等傷害。
 """
 
 #暫時的參考資料，實際使用時會從資料庫中獲取
@@ -106,32 +106,31 @@ def check_input_output_content(input, output):
     global address_truth_check
     global time_truth_check
     print("輸出:\n", output)
-    # yield tools.show_debug_to_UI(f"輸出:\n{output}")    
     input_abs = generate_summary(input)
     output_abs = generate_summary(output)
     if input_abs == False or output_abs == False:
         return False
     
-    summary_process_text = ""
+    summary_process_text = "輸出:{" + output + "}<br><br>"
     print("輸入摘要:", input_abs)
-    summary_process_text += f"輸入摘要:{input_abs}<br>"
+    summary_process_text += f"輸入摘要:{input_abs}<br><br>"
     print("輸出摘要:", output_abs)
-    summary_process_text += f"輸出摘要:{output_abs}<br>"
+    summary_process_text += f"輸出摘要:{output_abs}<br><br>"
     yield tools.show_summary_to_UI(summary_process_text)
 
+    # judge_process_text = "輸出:<br>" + tools.wrap_debug_section(output, color="#7281e8", border="#7281e8") 
     judge_process_text = ""
-
     if input_abs["案發地點"] != output_abs["案發地點"]:
         processed_address_truth_check = f"[{input_abs['案發地點']}]，[{output_abs['案發地點']}]" + address_truth_check
         address_response = tools.llm_generate_response(processed_address_truth_check).replace('=', '')
         print("地址檢查:\n", address_response)
 
-        address_block = "地址檢查<br>" + tools.wrap_debug_section(tools.remove_blank_lines(address_response), color="#fff8f0", border="#f0d9b5")
+        address_block = "地址檢查<br>" + tools.wrap_debug_section(tools.remove_blank_lines(address_response), color="#d0c5bb", border="#d0c5bb")
         judge_process_text += address_block
     else:
         address_response = "accept"
         print("輸入和輸出地址一致，無需檢查")
-        address_block = "地址檢查<br>" + tools.wrap_debug_section("輸入和輸出地址一致，無需檢查", color="#f0fff4", border="#b5e3ca")
+        address_block = "地址檢查<br>" + tools.wrap_debug_section("輸入和輸出地址一致，無需檢查", color="#d0c5bb", border="#d0c5bb")
         judge_process_text += address_block
 
     if input_abs["案發時間"] != output_abs["案發時間"]:
@@ -139,17 +138,15 @@ def check_input_output_content(input, output):
         time_response = tools.llm_generate_response(processed_time_truth_check).replace('=', '')
         print("時間檢查:\n", time_response)
 
-        time_block = "時間檢查<br>" + tools.wrap_debug_section(tools.remove_blank_lines(time_response), color="#f0f8ff", border="#aacfe6")
+        time_block = "時間檢查<br>" + tools.wrap_debug_section(tools.remove_blank_lines(time_response), color="#b3d6c2", border="#b3d6c2")
         judge_process_text += time_block
     else:
         time_response = "accept"
         print("輸入和輸出時間一致，無需檢查")
 
-        time_block = "時間檢查<br>" + tools.wrap_debug_section("輸入和輸出時間一致，無需檢查", color="#f0fff4", border="#b5e3ca")
+        time_block = "時間檢查<br>" + tools.wrap_debug_section("輸入和輸出時間一致，無需檢查", color="#b3d6c2", border="#b3d6c2")
         judge_process_text += time_block
-
     yield tools.show_debug_to_UI(judge_process_text)
-
     address_last_line = address_response.strip().split('\n')[-1].lower()
     time_last_line = time_response.strip().split('\n')[-1].lower()
     
@@ -164,6 +161,23 @@ def check_input_output_content(input, output):
         return True
     else:
         return False
+
+def select_best_output_using_bert_score(input_text, outputs):
+    if len(outputs) == 0:
+        print("沒有可用的輸出")
+        return ""
+    bertscore = load("bertscore")
+    print(outputs)
+    results = bertscore.compute(
+        predictions=outputs,
+        references=[input_text] * len(outputs),  # repeat reference for each prediction
+        lang="chinese",
+        model_type="bert-base-chinese"
+    )
+    # 找出 F1 分數最高的輸出
+    best_index = results["f1"].index(max(results["f1"]))
+    return best_index
+
 def generate_fact_statement(input, reference_facts, passed_tools):
     global truth_prompt
     global tools
@@ -171,10 +185,22 @@ def generate_fact_statement(input, reference_facts, passed_tools):
     size = len(reference_facts)
     cnt = 0 #生成次數
     result = ""
+    history_logs = []
+    start_time = time.time()   
     while True:
-        if cnt == 10:
-            print("賠償項目嘗試超過 10 次仍無法通過檢查，直接繼續生成\n")
-            yield tools.show_final_judge_to_UI('<span style="color:red;">賠償項目嘗試超過 10 次仍無法通過檢查，直接繼續生成\n</span>')
+        if time.time() - start_time > 120:
+            print(f"事實陳述生成超過2分鐘，從過去{len(history_logs)}次輸出中選擇最好的一個")
+            yield tools.show_final_judge_to_UI(f'<span style="color:#4287f5;">事實陳述生成超過2分鐘，從過去{len(history_logs)}次輸出中選擇最好的一個</span>')
+            final_index = select_best_output_using_bert_score(input, history_logs)
+            yield tools.show_final_judge_to_UI(f'<span style="color:#4287f5;">選擇第{final_index+1}筆輸出作為事實陳述生成</span>')
+            result = history_logs[final_index]
+            break
+        if cnt == 3:
+            print(f"事實陳述嘗試生成3次仍無法通過檢查，從過去3次輸出中選擇最好的一個\n")
+            yield tools.show_final_judge_to_UI(f'<span style="color:#4287f5;">事實陳述嘗試生成3次仍無法通過檢查，從過去3次輸出中選擇最好的一個</span>')
+            final_index = select_best_output_using_bert_score(input, history_logs)
+            yield tools.show_final_judge_to_UI(f'<span style="color:#4287f5;">選擇第{final_index+1}筆輸出作為事實陳述生成</span>')
+            result = history_logs[final_index]
             break
         if cnt % 3 == 0:
             print("參考輸出:\n", reference_facts[int(cnt / 3)%size])
@@ -182,7 +208,6 @@ def generate_fact_statement(input, reference_facts, passed_tools):
         processed_truth_prompt = f"\n範例格式:{reference_facts[int(cnt / 3)%size]}" + truth_prompt
         input = tools.remove_input_specific_part(input)
         result = tools.combine_prompt_generate_response(input, processed_truth_prompt).strip('\n')
-        cnt += 1
         #避免提前做結尾或者分段
         if "綜上所述" in result or '\n' in result or "二、" in result or "三、" in result or ("民法" in result and "民法" not in input):
             print("輸出:\n", result, "\n生成格式不符合要求，重新生成")
@@ -192,10 +217,12 @@ def generate_fact_statement(input, reference_facts, passed_tools):
             print("check_result:", check_result)
             if check_result == False:
                 print("判斷輸入和輸出的時間地點或內容不一致，重新生成")
-                yield tools.show_final_judge_to_UI('<span style="color:red;">最終判決結果: Reject</span>')
+                yield tools.show_final_judge_to_UI('<span style="color:#db272d;">最終判決結果: Reject</span>')
+                cnt += 1
+                history_logs.append(result)
             else:
                 print("判斷輸入和輸出的時間地點或內容一致，生成完成")
-                yield tools.show_final_judge_to_UI('<span style="color:green;">最終判決結果: Accept</span>')
+                yield tools.show_final_judge_to_UI('<span style="color:#2fd119;">最終判決結果: Accept</span>')
                 break
         print("=" * 50)
         # yield tools.show_debug_to_UI("=" * 50)

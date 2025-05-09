@@ -11,8 +11,6 @@ from ts_models import EmbeddingModel
 from ts_define_case_type import get_case_type
 from ts_prompt import (
     get_facts_prompt, 
-    get_compensation_prompt_part1_with_avg, 
-    get_compensation_prompt_part1_without_avg,
     get_compensation_prompt_part1_single_plaintiff,     # Add this
     get_compensation_prompt_part1_multiple_plaintiffs,  # Add this
     get_compensation_prompt_part2,
@@ -21,7 +19,7 @@ from ts_prompt import (
 )
 from ts_prompt_check import (
     get_fact_quality_check_prompt,
-    get_compensation_format_check_prompt,
+    get_compensation_part1_check_prompt,
     get_calculation_tags_check_prompt
 )
 
@@ -723,6 +721,84 @@ class RetrievalSystem:
             return '\n'.join(parts[:2])
         
         return remaining_text
+    
+    def get_laws_by_keyword_mapping(self, accident_facts: str, injuries: str, compensation_facts: str) -> List[str]:
+        """
+        Use keyword mapping to identify relevant laws for the case
+        
+        Args:
+            accident_facts: The accident facts from user query
+            injuries: The injuries section from user query
+            compensation_facts: The compensation facts from user query
+            
+        Returns:
+            List of law numbers that may be relevant
+        """
+        # Create keyword to law mapping based on reference function
+        legal_mapping = {
+            "184": ["未注意", "過失", "損害賠償", "侵害他人之權利"],
+            "185": ["共同侵害", "共同行為", "數人侵害", "造意人"],
+            "187": ["無行為能力", "限制行為能力", "法定代理人", "識別能力", "未成年"],
+            "188": ["受僱人", "僱用人", "雇傭", "連帶賠償"],
+            "191-2": ["汽車", "機車", "交通事故", "傷害", "損害"],
+            "193": ["損失", "醫療費用", "工作", "損害", "身體", "薪資", "就醫", "傷"],
+            "195": ["精神", "慰撫金", "痛苦", "名譽", "健康", "隱私", "貞操"],
+            "213": ["回復原狀", "給付金錢", "損害發生"],
+            "216": ["填補損害", "所失利益", "預期利益"],
+            "217": ["被害人與有過失", "賠償金減輕", "重大損害原因"]
+        }
+        
+        # Combine text for searching
+        combined_text = f"{accident_facts} {injuries} {compensation_facts}"
+        
+        # Track identified laws
+        identified_laws = set()
+        
+        # Search for keywords
+        for law_number, keywords in legal_mapping.items():
+            if any(keyword in combined_text for keyword in keywords):
+                identified_laws.add(law_number)
+        
+        # Convert to sorted list
+        return sorted(list(identified_laws))
+    
+    def check_law_content(self, accident_facts: str, injuries: str, law_number: str, law_content: str) -> Dict[str, str]:
+        """
+        Check if a specific law is applicable to the case
+        
+        Args:
+            accident_facts: The accident facts from user query
+            injuries: The injuries section from user query
+            law_number: The law number to check
+            law_content: The content of the law
+            
+        Returns:
+            Dictionary with check result and reason
+        """
+        from ts_prompt_check import get_law_content_check_prompt
+        
+        prompt = get_law_content_check_prompt(accident_facts, injuries, law_number, law_content)
+        result = self.call_llm(prompt)
+        
+        # Extract result and reason
+        pass_fail = "fail"  # Default to fail
+        reason = ""
+        
+        if "pass" in result.lower():
+            pass_fail = "pass"
+        
+        reason_match = re.search(r'\[理由\]:(.*?)(?:\n|$)', result, re.DOTALL)
+        if reason_match:
+            reason = reason_match.group(1).strip()
+        else:
+            reason_match = re.search(r'理由:(.*?)(?:\n|$)', result, re.DOTALL)
+            if reason_match:
+                reason = reason_match.group(1).strip()
+        
+        return {
+            "result": pass_fail,
+            "reason": reason
+        }
     
     def clean_conclusion_part(self, text: str) -> str:
         """
