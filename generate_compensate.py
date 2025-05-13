@@ -263,7 +263,10 @@ def generate_total_summary(input_text):
 
     
 def generate_reference_array(references):
-    parts = re.split(r'（[一二三四五六七八九十]{1,3}）', references)[1:]
+    if '（' in references:
+        parts = re.split(r'（[一二三四五六七八九十]{1,3}）', references)[1:]
+    else:
+        parts = references.split('(一)')[1:]  # 或換成你想 fallback 的方式
     results = []
     for i, part in enumerate(parts):
         lines = part.strip().splitlines()
@@ -439,7 +442,7 @@ def compensate_iteration(user_input, references):
     # yield tools.show_debug_to_UI(f"賠償總結:\n{processed_summary}\n" + "=" * 50)
     processed_compensation_sum_prompt = processed_compensation_sum_prompt = compensation_sum_prompt + f"""
 【範例格式】
-{reference_array[-1]}
+{reference_array[-1].replace("(", "（").replace(")", "）")}
 
 【賠償項目】
 {processed_summary}

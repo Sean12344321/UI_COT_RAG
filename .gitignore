@@ -39,3 +39,4 @@ elasticsearch-*/
 Thumbs.db
 .gradio/
 credential.json
+*_shen.py

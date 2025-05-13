@@ -102,32 +102,32 @@ def generate_lawsheet(input_data, rag_option="1", top_k=3, model_choice="kenneth
         rag_option = "1"
     else: 
         rag_option = "2"
-    debug, facts, laws_id, compensations = [], [], [], []
+    debug, facts, laws, compensations = [], [], [], []
     start_time = time.time()
     debug.append(f"[時間] {time.strftime('%Y-%m-%d %H:%M:%S')} 啟動起訴狀生成")
     references = query_simulation(input_data, top_k) if rag_option == "1" else retrieval(input_data,top_k)
     debug.append("[RAG] 使用 {} 查詢成功".format("KG_RAG" if rag_option == "1" else "chunk_RAG"))
-    reference_case_text=[f"<div style='color:blue'>第{i+1}筆參考範例:</div>{reference['case_text']}<br>" for i, reference in enumerate(references)]
+    reference_case_text=[f"<div style='color:blue'>第{i+1}筆參考範例:</div>{reference['case_text'].replace('\n','<br>')}<br>" for i, reference in enumerate(references)]
     reference_output = "".join(reference_case_text)
     yield current_state()
     data = tools.split_user_input(input_data)
-    
     for i, ref in enumerate(references):
         parsed = tools.split_user_output(ref["case_text"])
         if not parsed:
             debug.append(f"[清洗] 第{i+1}筆資料格式錯誤，跳過")
             continue
         facts.append(parsed["fact"])
-        laws_id.append(ref["case_id"])
+        laws.append(parsed["law"])
         compensations.append(parsed["compensation"])
         debug.append(f"[清洗] 第{i+1}筆資料成功解析")
     log1 = ""
     log2 = ""
+    extracted_laws = tools.extract_cases_to_laws(laws)
     ##generate simple lawsheet
     for part_1 in generate_simple_fact_statement(data["case_facts"] + '\n' + data["injury_details"], facts, tools):
         fast_output += part_1
         yield current_state()
-    fast_output += '<br><br>' + tools.generate_laws(laws_id, 2).replace('\n', '<br>') + "<br><br>"
+    fast_output += '<br><br>' + tools.generate_laws(extracted_laws, 2).replace('\n', '<br>') + "<br><br>"
     yield current_state()
     for part_3 in generate_simple_compensate(input_data, data["injury_details"], data["compensation_request"], compensations, tools):
         fast_output += part_3 + "<br><br>" if part_3 else ""
@@ -147,12 +147,11 @@ def generate_lawsheet(input_data, rag_option="1", top_k=3, model_choice="kenneth
         log1 += summary1 + audit1 + final_judge1
         yield current_state()
     # second_part_output += '<br><br>' + tools.generate_laws(laws_id, 2).replace('\n', '<br>') + "<br><br>"
-    for part2, ref2, summary2, audit2, final_judge2 in check_and_generate_laws(input_data, tools, top_k, laws_id):
+    for part2, ref2, summary2, audit2, final_judge2 in check_and_generate_laws(input_data, tools, top_k, extracted_laws):
         second_part_cot += audit2 + "<br>" if audit2 else ""
         second_part_output += part2
         yield current_state()
 
-    
     # second_part_output += tools.generate_laws(laws_id, 2).replace('\n', '<br>')
     # yield current_state()
     cnt = 0
@@ -166,7 +165,7 @@ def generate_lawsheet(input_data, rag_option="1", top_k=3, model_choice="kenneth
         reference_output += ref3
         third_part_cot += audit3
         third_part_cot += final_judge3 + ('<br><br>' if final_judge3 else '')
-        if "Accept" in final_judge3 or "筆作為賠償項目" in final_judge3:
+        if "Accept" in final_judge3 or "無法通過檢查，直接繼續生成" in final_judge3:
             item += 1
             cnt = 0
         log2 += summary3 + audit3 + final_judge3
@@ -185,7 +184,6 @@ def generate_lawsheet(input_data, rag_option="1", top_k=3, model_choice="kenneth
     debug_logs.append("<br>".join(debug + ["<br>========= 推理紀錄 ============<br>", log1, log2]))
 
     # return main_output, examples, debug_logs[-1]
-
 
 def export_pdf(content: str):
     try:
@@ -259,6 +257,7 @@ def display_similar_example(example_list, idx):
 #         return examples, 0, display_similar_example(examples, 0)
 # with gr.Blocks(title="法律文書生成系統") as demo:
 css = """
+/* 主輸出區塊 */
 .highlight-output {
     font-size: 18px;
     font-weight: bold;
@@ -266,10 +265,19 @@ css = """
     background-color: #fffbe6;
     border: 2px solid #f90;
     border-radius: 8px;
-    padding: 12px;
+    padding: 16px;
     overflow: auto;
     max-height: 500px;
 }
+
+/* Ensure paired blocks align vertically and have consistent heights */
+.output-pair {
+    display: flex;
+    align-items: stretch; /* Stretch to match the tallest block in the pair */
+    margin-bottom: 16px; /* Space between pairs */
+}
+
+/* Ensure similar_cases_block has a consistent appearance and stretches */
 .similar_cases_block {
     font-size: 15px;
     min-height: 150px;
@@ -280,26 +288,102 @@ css = """
     overflow: auto;
     padding: 12px;
     scrollbar-width: thin;
+    color: #fff;
+    flex: 1; /* Allow the block to stretch to match its pair */
+    display: flex;
+    flex-direction: column;
 }
+
+/* 輸入框強調 */
+textarea, .input-component {
+    border: 2px solid #e67e22 !important;
+    box-shadow: 0 0 8px rgba(230,126,34,0.5);
+    font-size: 16px;
+}
+
+/* 分級標題樣式 */
+.title {
+    background: #e67e22;
+    color: black !important;
+    padding: 6px 12px;
+    font-size: 25px;
+    font-weight: bold;
+    border-radius: 6px;
+    margin-top: 8px;
+    margin-bottom: 8px;
+}
+.section-title {
+    background: #e67e22;
+    color: black !important;
+    padding: 6px 12px;
+    font-size: 18px;
+    font-weight: bold;
+    border-radius: 6px;
+    margin-top: 8px;
+    margin-bottom: 8px;
+}
+.subsection-title {
+    background: #9b59b6;
+    color: white;
+    padding: 4px 10px;
+    font-size: 14px;
+    border-radius: 4px;
+    margin-top: 6px;
+    margin-left: 12px;
+    margin-bottom: 8px;
+}
+
+#generate-btn {
+    background-color: #e74c3c !important;  
+    color: black !important;
+    font-weight: bold;
+    font-size: 25px !important;  
+    padding: 20px 32px !important;
+    border: none !important;
+    border-radius: 10px !important;
+    transition: background 0.3s ease;
+}
+
+#generate-btn:hover {
+    background-color: #c0392b !important;  /* 深紅 */
+}
+
+#inject-btn {
+    background-color: #f39c12;
+    color: white;
+    font-weight: bold;
+    font-size: 22px;
+    padding: 14px 28px;
+    border: none;
+    border-radius: 10px;
+    transition: background 0.3s ease;
+}
+#inject-btn:hover {
+    background-color: #e67e22;
+}
+
 """
+   
 with gr.Blocks(title="法律文書生程系統", css=css) as demo:
-    gr.Markdown("## 起訴狀自動生成器（含推理過程 + Excel 上傳）")
+    gr.Markdown("## 起訴狀自動生成器")
+    gr.HTML("<div class='title'>📥 請輸入案件描述</div>")
     with gr.Row():
-        user_input = gr.Textbox(label="請輸入案件描述")
-        rag_selector = gr.Dropdown(choices=["段落切割", "語意切割"], label="選擇 RAG chunk", value="段落切割")
-        model_selector = gr.Dropdown(choices=["kenneth85/llama-3-taiwan:8b-instruct-dpo", "gemma3:27b"], label="選擇 LLM 模型", value="kenneth85/llama-3-taiwan:8b-instruct-dpo")
-        top_k_slider = gr.Slider(label="相似案例數量", minimum=1, maximum=10, step=1, value=3)
+        user_input = gr.Textbox(lines=5, placeholder="請輸入完整案件內容", label="", scale=3)
+        with gr.Column(scale=1):
+            rag_selector = gr.Dropdown(["段落切割", "語意切割"], label="RAG 模式", value="段落切割")
+            model_selector = gr.Dropdown(["kenneth85/llama-3-taiwan:8b-instruct-dpo", "gemma3:27b"], label="模型選擇", value="kenneth85/llama-3-taiwan:8b-instruct-dpo")
+            top_k_slider = gr.Slider(label="相似案例數量", minimum=1, maximum=10, value=3, step=1)
     with gr.Row():
         excel_upload = gr.File(label="上傳 Excel 檔案 (.xlsx)")
         txt_upload = gr.File(label="上傳 TXT 檔案 (.txt)", file_types=[".txt"])
         col_dropdown = gr.Dropdown(label="選擇欄位", choices=[])
         row_slider = gr.Slider(label="選擇列 index", minimum=0, maximum=5000, step=1, value=0)
-        inject_btn = gr.Button("匯入欄位內容")
+        inject_btn = gr.Button("📤 匯入欄位內容", elem_id="inject-btn", variant="stop")
 
-    inject_btn.click(populate_input, inputs=[col_dropdown, row_slider], outputs=user_input)
     excel_upload.change(handle_excel_upload, inputs=excel_upload, outputs=col_dropdown)
-    generate_btn = gr.Button("生成起訴狀")
-
+    inject_btn.click(populate_input, inputs=[col_dropdown, row_slider], outputs=user_input)
+    generate_btn = gr.Button("🚀 生成起訴狀", elem_id="generate-btn", variant="primary")
+    
     with gr.Row():
         with gr.Column():
             gr.HTML("<p style='font-weight:bold;font-size: 18px;'>📚 相似案例</p>")
@@ -308,49 +392,50 @@ with gr.Blocks(title="法律文書生程系統", css=css) as demo:
             gr.HTML("<p style='font-weight:bold;font-size: 18px;'>⚡ 快速生成內容 (不含COT)</p>")
             draft_output = gr.HTML(elem_classes=["similar_cases_block"])
 
+    # Fact, Law, Compensate Pairs
     with gr.Row():
-        with gr.Column():
-            gr.HTML("<p style='font-weight:bold;font-size: 18px;'>📝 事實陳述生成</p>")
-            fact_output = gr.HTML(elem_classes=["similar_cases_block"])
-        with gr.Column():
-            gr.HTML("<p style='font-weight:bold;font-size: 18px;'>🧠 事實陳述 COT</p>")
-            fact_cot = gr.HTML(elem_classes=["similar_cases_block"])
-
-    with gr.Row():
-        with gr.Column():
-            gr.HTML("<p style='font-weight:bold;font-size: 18px;'>⚖️ 法條引用生成</p>")
-            law_output = gr.HTML(elem_classes=["similar_cases_block"])
-        with gr.Column():
-            gr.HTML("<p style='font-weight:bold;font-size: 18px;'>💡 法條引用 COT</p>")
-            law_cot = gr.HTML(elem_classes=["similar_cases_block"])
-
-    with gr.Row():
-        with gr.Column():
-            gr.HTML("<p style='font-weight:bold;font-size: 18px;'>💰 賠償金額生成</p>")
-            compensate_output = gr.HTML(elem_classes=["similar_cases_block"])
-        with gr.Column():
-            gr.HTML("<p style='font-weight:bold;font-size: 18px;'>🧾 賠償金額 COT</p>")
-            compensate_cot = gr.HTML(elem_classes=["similar_cases_block"])
-
-
+        # Fact Pair
+        with gr.Row(elem_classes=["output-pair"]):
+            with gr.Column(scale=1):
+                gr.HTML("<div class='section-title'> ◉ 事實陳述生成</div>")
+                fact_output = gr.HTML(elem_classes=["similar_cases_block"])
+            with gr.Column(scale=1):
+                gr.HTML("<div class='subsection-title'> ⬆ 事實 COT</div>")
+                fact_cot = gr.HTML(elem_classes=["similar_cases_block"])
+        
+        # Law Pair
+        with gr.Row(elem_classes=["output-pair"]):
+            with gr.Column(scale=1):
+                gr.HTML("<div class='section-title'> ◉ 法條引用生成</div>")
+                law_output = gr.HTML(elem_classes=["similar_cases_block"])
+            with gr.Column(scale=1):
+                gr.HTML("<div class='subsection-title'> ⬆ 法條 COT</div>")
+                law_cot = gr.HTML(elem_classes=["similar_cases_block"])
+        
+        # Compensate Pair
+        with gr.Row(elem_classes=["output-pair"]):
+            with gr.Column(scale=1):
+                gr.HTML("<div class='section-title'> ◉ 賠償金額生成</div>")
+                compensate_output = gr.HTML(elem_classes=["similar_cases_block"])
+            with gr.Column(scale=1):
+                gr.HTML("<div class='subsection-title'> ⬆ 賠償 COT</div>")
+                compensate_cot = gr.HTML(elem_classes=["similar_cases_block"])
 
     gr.HTML("<h2 style='color:#d35400'>🔶 完整生成內容 (含COT)</h2>")
     final_output = gr.HTML(elem_classes=["highlight-output"])
-    pdf_btn = gr.Button("下載 PDF")
+    pdf_btn = gr.Button("📥 下載 PDF", elem_classes=["cta-button"])
     pdf_file = gr.File(label="PDF 檔案")
     history_dropdown = gr.Dropdown(choices=[], label="查看歷史記錄")
-    view_btn = gr.Button("載入歷史紀錄")
+    view_btn = gr.Button("📜 載入歷史紀錄", elem_classes=["cta-button"])
     history_text = gr.Textbox(label="歷史紀錄內容")
 
     generate_btn.click(generate_lawsheet, 
-    inputs=[user_input, rag_selector, top_k_slider, model_selector], 
-    outputs=[similar_cases, draft_output, fact_output, fact_cot, law_output, law_cot, compensate_output, compensate_cot, final_output])
+        inputs=[user_input, rag_selector, top_k_slider, model_selector], 
+        outputs=[similar_cases, draft_output, fact_output, fact_cot, law_output, law_cot, compensate_output, compensate_cot, final_output])
     generate_btn.click(update_history_dropdown, outputs=history_dropdown)
     pdf_btn.click(export_pdf, inputs=final_output, outputs=pdf_file)
     view_btn.click(view_history, inputs=history_dropdown, outputs=history_text)
     txt_upload.change(handle_txt_upload, inputs=txt_upload, outputs=user_input)
-    inject_btn.click(populate_input, inputs=[col_dropdown, row_slider], outputs=user_input)
-
 
 Tools("kenneth85/llama-3-taiwan:8b-instruct-dpo")
 demo.queue().launch(share=True)

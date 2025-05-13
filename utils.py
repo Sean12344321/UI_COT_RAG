@@ -25,9 +25,6 @@ class Tools:
                     },
                 ],
                 model=self.model,
-                # options={
-                #     'temperature': 0.5  # 看要不要加，加了比較穩定
-                # }
             )
             return response['message']['content']
         except Exception as e:
@@ -61,7 +58,12 @@ class Tools:
         if len(sections) != 2:
             print("警告: 無法正確識別文本標記。請確保格式為「一、」開頭，然後有「二、」和(一)")
             return False
-        sub_sections = sections[1].split('（一）')
+        if '（一）' in sections[1]:
+            sub_sections = sections[1].split('（一）')
+        elif '(一)' in sections[1]:
+            sub_sections = sections[1].split('(一)')
+        else:
+            sub_sections = [sections[1]] 
         if len(sub_sections) != 2:
             print("警告: 無法正確識別文本標記。請確保格式為「二、」和「（一）」")
             return False
@@ -105,8 +107,35 @@ class Tools:
         {prompt}"""
         return self.llm_generate_response(fact_input)
     
-    def generate_laws(self, case_ids, threshold):
-        laws = self.retrieval_system.get_laws_from_neo4j(case_ids)
+    def extract_cases_to_laws(self, cases: list) -> dict:
+        print("[DEBUG] laws before extraction:", cases)
+        print("[DEBUG] type of laws:", type(cases))
+        laws = []
+        laws_content = [{"law_number": "184", "content": "第184條:因故意或過失，不法侵害他人之權利者，負損害賠償責任。故意以背於善良風俗之方法，加損害於他人者亦同。 違反保護他人之法律，致生損害於他人者，負賠償責任。但能證明其行為無過失者，不在此限。"},{"law_number": "185", "content": "第185條:數人共同不法侵害他人之權利者，連帶負損害賠償責任。不能知其中孰為加害人者亦同。 造意人及幫助人，視為共同行為人。"}, {"law_number": "187", "content": "第187條:無行為能力人或限制行為能力人，不法侵害他人之權利者，以行為時有識別能力為限，與其法定代理人連帶負損害賠償責任。行為時無識別能力者，由其法定代理人負損害賠償責任。 前項情形，法定代理人如其監督並未疏懈，或縱加以相當之監督，而仍不免發生損害者，不負賠償責任。 如不能依前二項規定受損害賠償時，法院因被害人之聲請，得斟酌行為人及其法定代理人與被害人之經濟狀況，令行為人或其法定代理人為全部或一部之損害賠償。 前項規定，於其他之人，在無意識或精神錯亂中所為之行為致第三人受損害時，準用之。"}, {"law_number": "188", "content": "第188條:受僱人因執行職務，不法侵害他人之權利者，由僱用人與行為人連帶負損害賠償責任。但選任受僱人及監督其職務之執行，已盡相當之注意或縱加以相當之注意而仍不免發生損害者，僱用人不負賠償責任。 如被害人依前項但書之規定，不能受損害賠償時，法院因其聲請，得斟酌僱用人與被害人之經濟狀況，令僱用人為全部或一部之損害賠償。 僱用人賠償損害時，對於為侵權行為之受僱人，有求償權。 前項損害之發生，如別有應負責任之人時，賠償損害之所有人，對於該應負責者，有求償權。"}, {"law_number": "191-2", "content": "第191-2條:汽車、機車或其他非依軌道行駛之動力車輛，在使用中加損害於他人者，駕駛人應賠償因此所生之損害。但於防止損害之發生，已盡相當之注意者，不在此限。"}, {"law_number": "193", "content": "第193條:不法侵害他人之身體或健康者，對於被害人因此喪失或減少勞動能力或增加生活上之需要時，應負損害賠償責任。 前項損害賠償，法院得因當事人之聲請，定為支付定期金。但須命加害人提出擔保。"}, {"law_number": "195", "content": "第195條:不法侵害他人之身體、健康、名譽、自由、信用、隱私、貞操，或不法侵害其他人格法益而情節重大者，被害人雖非財產上之損害，亦得請求賠償相當之金額。其名譽被侵害者，並得請求回復名譽之適當處分。 前項請求權，不得讓與或繼承。但以金額賠償之請求權已依契約承諾，或已起訴者，不在此限。 前二項規定，於不法侵害他人基於父、母、子、女或配偶關係之身分法益而情節重大者，準用之。"}, {"law_number": "213", "content": "第213條:負損害賠償責任者，除法律另有規定或契約另有訂定外，應回復他方損害發生前之原狀。 因回復原狀而應給付金錢者，自損害發生時起，加給利息。 第一項情形，債權人得請求支付回復原狀所必要之費用，以代回復原狀。"}, {"law_number": "216", "content": "第216條:損害賠償，除法律另有規定或契約另有訂定外，應以填補債權人所受損害及所失利益為限。 依通常情形，或依已定之計劃、設備或其他特別情事，可得預期之利益，視為所失利益。"}, {"law_number": "217", "content": "第217條:損害之發生或擴大，被害人與有過失者，法院得減輕賠償金額，或免除之。重大之損害原因，為債務人所不及知，而被害人不預促其注意或怠於避免或減少損害者，為與有過失。 前二項之規定，於被害人之代理人或使用人與有過失者，準用之。"}]
+        for input in cases:
+            if "第184條" in input:
+                laws.append({"law_number": laws_content[0]["law_number"], "content": laws_content[0]["content"]})
+            if "第185條" in input:
+                laws.append({"law_number": laws_content[1]["law_number"], "content": laws_content[1]["content"]})
+            if "第187條" in input:
+                laws.append({"law_number": laws_content[2]["law_number"], "content": laws_content[2]["content"]})
+            if "第188條" in input:
+                laws.append({"law_number": laws_content[3]["law_number"], "content": laws_content[3]["content"]})
+            if "第191條" in input:
+                laws.append({"law_number": laws_content[4]["law_number"], "content": laws_content[4]["content"]})
+            if "第193條" in input:
+                laws.append({"law_number": laws_content[5]["law_number"], "content": laws_content[5]["content"]})
+            if "第195條" in input:
+                laws.append({"law_number": laws_content[6]["law_number"], "content": laws_content[6]["content"]})
+            if "第213條" in input:
+                laws.append({"law_number": laws_content[7]["law_number"], "content": laws_content[7]["content"]})
+            if "第216條" in input:
+                laws.append({"law_number": laws_content[8]["law_number"], "content": laws_content[8]["content"]})
+            if "第217條" in input:
+                laws.append({"law_number": laws_content[9]["law_number"], "content": laws_content[9]["content"]})
+        return laws
+    
+    def generate_laws(self, laws, threshold):
         law_counts = self.retrieval_system.count_law_occurrences(laws)
         filtered_law_numbers = self.retrieval_system.filter_laws_by_occurrence(law_counts, threshold)
         law_contents = []

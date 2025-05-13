@@ -3,23 +3,9 @@ os.chdir(os.path.dirname(__file__))
 sys.path.append(os.path.join(os.path.dirname(__file__), "chunk_RAG"))
 from chunk_RAG.ts_define_case_type import get_case_type
 from utils import Tools
-def check_and_generate_laws(user_input, tools, k_value, case_ids = []):
+def check_and_generate_laws(user_input, tools, k_value, laws = []):
         retrieval_system = tools.retrieval_system   
         progress_text = """"""
-        if case_ids == []:
-            case_type, _, _ = get_case_type(user_input, 1)
-            search_results = retrieval_system.search_elasticsearch(user_input, "fact", k_value, case_type)
-        # Extract case IDs and get laws from Neo4j
-            case_ids = [result['case_id'] for result in search_results]
-        # progress_text += f"從相似案例獲取相關法條...\n"
-        # yield progress_text
-        
-        
-        laws = retrieval_system.get_laws_from_neo4j(case_ids)
-        
-        if not laws:
-            progress_text += "警告: 未找到相關法條\n"
-            laws = []
         
         # Count law occurrences
         law_counts = retrieval_system.count_law_occurrences(laws)
@@ -27,7 +13,7 @@ def check_and_generate_laws(user_input, tools, k_value, case_ids = []):
         for law, count in sorted(law_counts.items(), key=lambda x: x[1], reverse=True):
             progress_text += f"法條 {law}: 出現 {count} 次\n"
         # Determine j based on k value
-        k_value = len(case_ids)
+        k_value = len(laws)
         j_values = {1: 1, 2: 1, 3: 2, 4: 2, 5: 2}
         j = j_values.get(k_value, 1)
         # progress_text += f"根據 k={k_value} 設置法條保留閾值 j={j}\n"
